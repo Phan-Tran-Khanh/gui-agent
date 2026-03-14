@@ -18,12 +18,40 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
-
 # Cropping constants
 DEFAULT_CROP_RATIOS = [(0.5, 0.5), (0.3, 0.3), (0.4, 0.8), (0.8, 0.4)]  # ratio_x, ratio_y
+
+# Information-Sensitive Cropping constants
+DEFAULT_K_MIN = 64  # Initial window size
+DEFAULT_RHO_MIN = 0.15  # Base density threshold
+DEFAULT_ALPHA = 1.5  # Window expansion factor
+DEFAULT_N_MAX = 50  # Maximum number of regions to extract
+
+
+@dataclass
+class ISCRegion:
+    """
+    Region extracted by adaptive region extraction algorithm.
+    
+    Represents a rectangular region identified as information-dense
+    by the edge-based adaptive extraction method.
+    
+    Attributes:
+        x (int): Top-left x-coordinate in original image
+        y (int): Top-left y-coordinate in original image
+        size (int): Width and height of the square region
+        id (int): Unique region identifier
+        density (float): Edge density score in [0, 1]
+    """
+    x: int
+    y: int
+    size: int
+    id: int
+    density: float
 
 
 @dataclass
@@ -507,3 +535,404 @@ def crop_and_upsample_region(
         zoomed_regions.append(zoomed_region)
 
     return zoomed_regions
+
+
+def detect_edge_matrix(
+    image: Any,
+    threshold_low: Optional[int] = None,
+    threshold_high: Optional[int] = None,
+    debug: bool = False,
+    task_id: Optional[str] = None
+) -> np.ndarray:
+    """
+    Detect edges in image to generate information indication matrix.
+    
+    This function converts an image to an edge detection matrix where each pixel
+    value indicates the presence of meaningful visual information (typically at
+    boundaries of UI elements). The resulting matrix is used by the adaptive
+    region extraction algorithm to identify information-dense regions.
+    
+    Edge detection identifies visually significant regions by leveraging the
+    observation that meaningful GUI elements typically have distinctive boundaries.
+    
+    Process:
+        1. Convert image to grayscale if needed
+        2. Apply edge detection method (Canny, Sobel, etc.)
+        3. Normalize edge values to [0, 1] range
+        4. Return binary edge matrix where 1 indicates edge presence
+    
+    Args:
+        image (PIL.Image or str or np.ndarray):
+            Input screenshot/image to process.
+            - PIL.Image: Converted to grayscale
+            - str: Loaded as image file
+            - np.ndarray: Treated as RGB or grayscale
+            
+        edge_method (str):
+            Edge detection algorithm to use.
+            Default: "canny"
+            Options: "canny", "sobel", "laplacian", "prewitt"
+            
+        threshold_low (int, optional):
+            Low threshold for edge detection methods.
+            Default: Automatically estimated from image
+            
+        threshold_high (int, optional):
+            High threshold for edge detection methods.
+            Default: Automatically estimated from image
+            
+        debug (bool):
+            If True, save edge detection visualization.
+            Default: False
+            
+        task_id (str, optional):
+            Task identifier for debug output organization.
+            Debug files saved to: ./debug/{task_id}/
+    
+    Returns:
+        np.ndarray:
+            Binary edge matrix M ∈ {0, 1}^(H×W) where:
+            - M[i, j] = 1: Indicates meaningful visual information at (i, j)
+            - M[i, j] = 0: No significant edge/information
+            
+            Shape: (height, width) - same as input image
+            Dtype: np.uint8 (values 0 or 1)
+    
+    Raises:
+        ValueError: If image cannot be processed or edge_method is invalid
+        ImportError: If required edge detection library is not available
+    
+    Notes:
+        - Edge detection emphasizes boundaries of UI elements
+        - Output matrix is normalized to binary values for downstream processing
+        - Thresholds are auto-estimated if not provided based on image statistics
+        
+    Example:
+        ```python
+        # Detect edges in screenshot
+        edge_matrix = detect_edge_matrix(
+            image="screenshot.png",
+            edge_method="canny",
+            debug=True,
+            task_id="task_001"
+        )
+        
+        # edge_matrix.shape == (1080, 1920)
+        # edge_matrix.dtype == np.uint8
+        # Values are all 0 or 1
+        ```
+    
+    References:
+        - Information-Sensitive Cropping paper: https://arxiv.org/pdf/2412.10342
+        - Iris: Breaking GUI Complexity with Adaptive Focus and Self-Refining
+    """
+    # Load and convert image to numpy array
+    if isinstance(image, str):
+        img = Image.open(image)
+        img_array = np.array(img)
+    elif isinstance(image, np.ndarray):
+        img_array = image
+    else:
+        # PIL.Image
+        img_array = np.array(image)
+
+    # STAGE 1: Pre-processing - Convert to grayscale and apply CLAHE
+    if len(img_array.shape) == 3:
+        # Convert RGB/BGR to grayscale
+        if img_array.shape[2] == 3:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        elif img_array.shape[2] == 4:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGBA2GRAY)
+        else:
+            gray = img_array[:, :, 0]
+    else:
+        gray = img_array
+
+    # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+    # Parameters from document: clipLimit=2.0, tileGridSize=(8,8)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+
+    # STAGE 2: Noise reduction - Gaussian blur
+    # Parameter from document: sigma=1.0
+    blurred = cv2.GaussianBlur(enhanced, (5, 5), sigmaX=1.0, sigmaY=1.0)
+
+    # STAGE 3-4: Gradient computation and Canny edge detection
+    # CV2.Canny handles: gradient computation, non-maximum suppression, hysteresis thresholding
+    if threshold_low is None:
+        threshold_low = 50  # Default from document
+    if threshold_high is None:
+        threshold_high = 150  # Default from document
+
+    edges = cv2.Canny(blurred, threshold_low, threshold_high)
+
+    # STAGE 5: Edge density preservation - Morphological dilation
+    # Parameter from document: kernel=3x3, iterations=1-2
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    dilated = cv2.dilate(edges, kernel, iterations=2)
+
+    # Ensure output is binary (0 or 1)
+    M = (dilated > 0).astype(np.uint8)
+
+    # Debug visualization
+    if debug:
+        debug_dir = f"./debug/{task_id}" if task_id else "./debug"
+        os.makedirs(debug_dir, exist_ok=True)
+
+        # Save intermediate stages for visual inspection
+        cv2.imwrite(os.path.join(debug_dir, "01_grayscale.png"), gray)
+        cv2.imwrite(os.path.join(debug_dir, "02_clahe_enhanced.png"), enhanced)
+        cv2.imwrite(os.path.join(debug_dir, "03_blurred.png"), blurred)
+        cv2.imwrite(os.path.join(debug_dir, "04_canny_edges.png"), edges)
+        cv2.imwrite(os.path.join(debug_dir, "05_dilated_edges.png"), dilated)
+        cv2.imwrite(os.path.join(debug_dir, "06_binary_matrix.png"), M * 255)
+
+    return M
+
+
+def adaptive_region_extraction(
+    edge_matrix: np.ndarray,
+    k_min: int = DEFAULT_K_MIN,
+    rho_min: float = DEFAULT_RHO_MIN,
+    alpha: float = DEFAULT_ALPHA,
+    n_max: int = DEFAULT_N_MAX,
+    debug: bool = False,
+    task_id: Optional[str] = None
+) -> List[ISCRegion]:
+    """
+    Extract information-dense regions using multi-scale sliding windows.
+    
+    This algorithm identifies rectangular regions with high visual information
+    density by scanning an edge detection matrix at multiple scales. It uses
+    sliding window approach with scale-adaptive density thresholds to balance
+    sensitivity across different window sizes.
+    
+    The algorithm progressively increases window size, extracting regions that
+    meet density threshold criteria, while preventing overlapping selections by
+    zeroing out already-selected regions.
+    
+    Process:
+        1. **Initialize**: k = k_min, regions = []
+        2. **Multi-Scale Loop**: While k <= max(height, width) and len(regions) < n_max:
+           a. Compute sliding step: step = max(k/4, 32)
+           b. Compute density threshold: ρ_k = ρ_min / (k/k_min)²
+           c. Slide window across image:
+              - For each (x,y) in grid with stride step:
+                - If window fits in bounds:
+                  - Compute edge density in window
+                  - If density >= ρ_k: Extract region, zero out to prevent overlap
+           d. Expand window: k = ceil(α * k)
+        3. **Sort Results**: Sort regions by density (descending)
+        4. **Return**: List of extracted regions
+    
+    Args:
+        edge_matrix (np.ndarray):
+            Binary edge detection matrix M ∈ {0, 1}^(H×W).
+            - M[i, j] = 1: Indicates meaningful visual information
+            - M[i, j] = 0: No significant edge
+            Expected shape: (height, width)
+            Expected dtype: np.uint8 or np.float32
+            
+        k_min (int):
+            Initial sliding window size in pixels.
+            Default: 64
+            Range: Typically 32-128 depending on image resolution
+            
+        rho_min (float):
+            Base density threshold for smallest window size.
+            Default: 0.15
+            Range: [0.0, 1.0]
+            - 0.15: ~15% of pixels must be edges to qualify
+            - Larger values: More selective (fewer regions)
+            - Smaller values: More inclusive (more regions)
+            
+        alpha (float):
+            Window size expansion factor per iteration.
+            Default: 1.5
+            Typical range: [1.2, 2.0]
+            - 1.5: window grows by 50% each iteration
+            - Smaller: More scales, more computation
+            - Larger: Fewer scales, less computation
+            
+        n_max (int):
+            Maximum number of regions to extract.
+            Default: 50
+            Stops extraction after this many regions regardless of threshold.
+            
+        debug (bool):
+            If True, save visualization of extracted regions.
+            Default: False
+            
+        task_id (str, optional):
+            Task identifier for debug output organization.
+            Debug files saved to: ./debug/{task_id}/
+    
+    Returns:
+        List[ISCRegion]:
+            List of extracted regions sorted by density (descending).
+            
+            Each ISCRegion contains:
+            - x: Top-left x-coordinate
+            - y: Top-left y-coordinate
+            - size: Window size (width and height of square region)
+            - id: Unique region identifier (1-indexed)
+            - density: Edge density score in [0.0, 1.0]
+            
+            Regions are sorted by density highest-first.
+            
+            Empty list if no regions found above threshold.
+    
+    Raises:
+        ValueError: If edge_matrix is invalid or parameters out of valid range
+        TypeError: If edge_matrix is not np.ndarray
+    
+    Notes:
+        **Density Threshold Scaling**:
+        The threshold decreases with window size:
+        ```
+        ρ_k = ρ_min / (k / k_min)²
+        ```
+        This prevents larger windows from dominating selection while ensuring
+        smaller windows remain selective.
+        
+        **Sliding Step Strategy**:
+        ```
+        step = max(k / 4, 32)
+        ```
+        Smaller windows use finer step (k/4) for detailed coverage.
+        Larger windows use coarser step for efficiency.
+        
+        **Overlap Prevention**:
+        Selected regions are zeroed in edge_matrix to prevent overlapping
+        selections in subsequent iterations.
+        
+    Example:
+        ```python
+        from PIL import Image
+        
+        # Load image and generate edge matrix
+        image = Image.open("screenshot.png")
+        edge_matrix = detect_edge_matrix(image)
+        
+        # Extract information-dense regions
+        regions = adaptive_region_extraction(
+            edge_matrix,
+            k_min=64,
+            rho_min=0.15,
+            alpha=1.5,
+            n_max=50,
+            debug=True,
+            task_id="task_001"
+        )
+        
+        # Access extracted regions
+        for i, region in enumerate(regions):
+            print(f"Region {i}: pos=({region.x}, {region.y}), "
+                  f"size={region.size}, density={region.density:.3f}")
+            
+            # Region can be used for cropping:
+            # cropped = image.crop((region.x, region.y,
+            #                       region.x + region.size,
+            #                       region.y + region.size))
+        ```
+    
+    References:
+        - Information-Sensitive Cropping (ISC) paper: https://arxiv.org/pdf/2412.10342
+        - Iris: Breaking GUI Complexity with Adaptive Focus and Self-Refining
+        - Algorithm: AdaptiveRegionExtraction (Section in ISC paper)
+    """
+    # Validate input
+    if not isinstance(edge_matrix, np.ndarray):
+        raise TypeError(f"edge_matrix must be np.ndarray, got {type(edge_matrix)}")
+
+    if len(edge_matrix.shape) != 2:
+        raise ValueError(f"edge_matrix must be 2D, got shape {edge_matrix.shape}")
+
+    # Make a copy to avoid modifying input
+    M = edge_matrix.astype(np.float32).copy()
+    height, width = M.shape
+
+    # Initialize
+    k = k_min
+    regions = []
+
+    # Multi-scale loop
+    while k <= max(height, width) and len(regions) < n_max:
+        # Step 1: Determine sliding step
+        step = max(int(k / 4), 32)
+
+        # Step 2: Compute density threshold for this scale
+        rho_k = rho_min / ((k / k_min) ** 2)
+
+        # Step 3: Slide window across image
+        for y in range(0, height, step):
+            for x in range(0, width, step):
+                # Check window boundaries
+                if x + k > width or y + k > height:
+                    continue
+
+                # Compute edge density in window
+                window = M[y : y + k, x : x + k]
+                density = float(np.sum(window) / (k * k))
+
+                # Check density threshold
+                if density >= rho_k and len(regions) < n_max:
+                    # Create region
+                    region_id = len(regions) + 1
+                    region = ISCRegion(
+                        x=x,
+                        y=y,
+                        size=k,
+                        id=region_id,
+                        density=density
+                    )
+                    regions.append(region)
+
+                    # Prevent overlapping regions by zeroing out selected area
+                    M[y : y + k, x : x + k] = 0
+
+        # Step 4: Expand window size
+        k = int(np.ceil(alpha * k))
+
+    # Sort regions by density (descending)
+    regions.sort(key=lambda r: r.density, reverse=True)
+
+    # Debug visualization
+    if debug:
+        debug_dir = f"./debug/{task_id}" if task_id else "./debug"
+        os.makedirs(debug_dir, exist_ok=True)
+
+        # Create visualization image showing extracted regions
+        debug_img = Image.new("RGB", (width, height), color=(255, 255, 255))
+        draw = ImageDraw.Draw(debug_img)
+
+        colors = [
+            (255, 0, 0),      # Red
+            (0, 255, 0),      # Green
+            (0, 0, 255),      # Blue
+            (255, 255, 0),    # Yellow
+            (255, 0, 255),    # Magenta
+            (0, 255, 255),    # Cyan
+        ]
+
+        for i, region in enumerate(regions):
+            color = colors[i % len(colors)]
+            left = region.x
+            top = region.y
+            right = region.x + region.size
+            bottom = region.y + region.size
+
+            # Draw rectangle with region ID
+            draw.rectangle(
+                [(left, top), (right, bottom)],
+                outline=color,
+                width=2
+            )
+
+            # Draw region ID and density
+            label = f"R{region.id} ({region.density:.2f})"
+            draw.text((left + 5, top + 5), label, fill=color)
+
+        debug_img.save(os.path.join(debug_dir, "extracted_regions.png"))
+
+    return regions
