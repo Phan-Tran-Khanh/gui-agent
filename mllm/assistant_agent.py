@@ -26,8 +26,6 @@ class AssistantAgent:
         self.api_key = api_key
         self._logger = logging.getLogger(self.__class__.__name__)
 
-        # Initialize litellm client
-        # self.client = litellm.Client(provider=provider, api_key=api_key)
         self._logger.info(f"Initialized AssistantAgent with model: {model}")
         self._logger.info(f"Query self.api_key: {self.api_key}")
 
