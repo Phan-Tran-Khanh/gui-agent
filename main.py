@@ -3,7 +3,7 @@
 GUI Agent - Main CLI Entry Point
 
 ASSIST-GUI Pipeline - Step 1: Planner
-Decomposes user goal into sub-goals/milestones for mobile GUI automation.
+Decomposes user goal into milestones and subtasks for mobile GUI automation.
 """
 
 import argparse
@@ -80,11 +80,8 @@ def main():
 
         # Get annotated image from GUI State Compiler
         logger.info("")
-        logger.info("Compiling GUI state with UI element highlighting...")
-        # TODO: Implement GUIStateCompiler to capture and annotate the current GUI state, returning a base64-encoded image
-        
-        # gui_compiler = GUIStateCompiler()
-        # image_base64 = gui_compiler.compile_gui_state()
+        logger.info("Compiling GUI state with UI element highlighting...")                        # TODO: Imp GUI state, returning a base64-encoded      #         gui_compiler = GUIStateComper()
+#         image_base64 = gui_compiler.compile_gui_state()
 
         # read annotated image from file for testing
         image_path = Path("img/screen.jpg")
@@ -92,7 +89,7 @@ def main():
         if image_path.exists():
             with open(image_path, "rb") as f:
                 image_base64 = base64.b64encode(f.read()).decode('utf-8')
-
+        
         if image_base64:
             logger.info("Successfully obtained annotated GUI image")
         else:
@@ -121,30 +118,12 @@ def main():
         logger.info("Generating plan for user goal...")
         logger.info("")
         
-        subgoals = planner.plan(
+        plan = planner.plan(
             user_goal=config.user_goal,
             image_base64=image_base64
         )
 
-        # Output plan details
-        logger.info("")
-        logger.info("=" * 70)
-        logger.info("GENERATED PLAN")
-        logger.info("=" * 70)
-        logger.info("")
-        
-        for sg in subgoals:
-            logger.info(f"[{sg.priority}] {sg.id}: {sg.description}")
-            logger.info(f"    Estimated steps: {sg.estimated_steps}")
-            if sg.dependencies:
-                logger.info(f"    Dependencies: {', '.join(sg.dependencies)}")
-            logger.info(f"    Success criteria: {sg.success_criteria}")
-            logger.info("")
-
-        logger.info("=" * 70)
-        logger.info("Planning completed successfully!")
-        logger.info("=" * 70)
-        
+     
         return 0
         
     except ConfigError as e:

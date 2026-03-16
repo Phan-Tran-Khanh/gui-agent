@@ -2,38 +2,89 @@
 Planner Agent for MLLM Module
 
 Specialized agent for planning decisions using AssistantAgent.
-Decomposes user goals into sub-goals.
+Decomposes user goals into milestones and subtasks.
 """
 
 import logging
 from typing import List, Dict, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from mllm.assistant_agent import AssistantAgent
+from mllm.enums import ExecutionStatus, ActionType
+
 
 @dataclass
-class SubGoal:
-    """Represents a decomposed sub-goal from the planner."""
-    id: str
-    description: str
-    priority: int
-    estimated_steps: int
-    dependencies: List[str]
-    success_criteria: str
+class SubTask:
+    """Individual action within a milestone"""
+    id: str                              # "m_1_1"
+    description: str                     # "Tap 'Privacy' button"
+    action_hint: ActionType              # ActionType.CLICK, ActionType.TYPE, etc.
+    expected_ui_element: str             # "Privacy" - what element to look for
+    alternative_ui_elements: List[str] = field(default_factory=list)  # ["Privacy Settings", "Privacy & Security"]
+    
+    # Execution state
+    status: ExecutionStatus = ExecutionStatus.PENDING
+    executed_element: Optional[str] = None  # What element was actually clicked
+    error_message: Optional[str] = None
 
-    def to_dict(self) -> Dict:
-        return {
-            "id": self.id,
-            "description": self.description,
-            "priority": self.priority,
-            "estimated_steps": self.estimated_steps,
-            "dependencies": self.dependencies,
-            "success_criteria": self.success_criteria,
-        }
 
+@dataclass
+class Milestone:
+    """Major phase of the task"""
+    id: str                              # "m_1"
+    description: str                     # "Open Privacy settings"
+    priority: int                        # Execution order (1, 2, 3...)
+    estimated_steps: int                 # Total steps in this milestone
+    dependencies: List[str]              # Prerequisites (e.g., ["m_1"])
+    success_criteria: str                # How to verify completion
+    
+    subtasks: List[SubTask]              # Actual subtasks from planning
+    
+    # Execution state
+    status: ExecutionStatus = ExecutionStatus.PENDING
+    current_subtask_index: int = 0       # Which subtask are we on?
+    
+    # Execution history
+    execution_history: List[Dict] = field(default_factory=list)
+
+
+@dataclass
+class Plan:
+    """Complete plan with all milestones"""
+    milestones: List[Milestone]
+    
+    # Execution state
+    status: ExecutionStatus = ExecutionStatus.PENDING
+    current_milestone_index: int = 0     # Track which milestone we're on
+    
+    def get_current_milestone(self) -> Optional[Milestone]:
+        """Get the currently active milestone"""
+        if 0 <= self.current_milestone_index < len(self.milestones):
+            return self.milestones[self.current_milestone_index]
+        return None
+    
+    def get_next_subtask(self) -> Optional[SubTask]:
+        """Get the next subtask to execute"""
+        current_m = self.get_current_milestone()
+        if not current_m:
+            return None
+        if current_m.current_subtask_index < len(current_m.subtasks):
+            return current_m.subtasks[current_m.current_subtask_index]
+        return None
+    
+    def advance_subtask(self):
+        """Move to next subtask"""
+        current_m = self.get_current_milestone()
+        if current_m:
+            current_m.current_subtask_index += 1
+            if current_m.current_subtask_index >= len(current_m.subtasks):
+                # Move to next milestone
+                self.current_milestone_index += 1
+                current_m.status = ExecutionStatus.COMPLETED
+    
 class PlannerAgent:
     """
     Specialized agent for planning decisions using AssistantAgent.
-    Decomposes user goals into sub-goals/milestones.
+    Decomposes user goals into milestones and subtasks.
     """
 
     def __init__(self, assistant_agent: AssistantAgent):
@@ -52,9 +103,9 @@ class PlannerAgent:
         context: Dict,
         constraints: List[str],
         image_base64: Optional[str] = None
-    ) -> List[SubGoal]:
+    ) -> Plan:
         """
-        Decompose a user goal into sub-goals.
+        Decompose a user goal into milestones with subtasks.
 
         Args:
             goal: The user's goal/task description
@@ -63,65 +114,25 @@ class PlannerAgent:
             image_base64: Optional base64 encoded image with highlighted UI elements
 
         Returns:
-            List of SubGoal objects representing the decomposed plan
+            Plan object containing milestones and subtasks
         """
         self._logger.info(f"Planning goal: {goal}")
 
         # Create the planning prompt
         prompt = self._create_planning_prompt(goal, context, constraints)
-        self._logger.debug(f"Generated planning prompt: {prompt[:200]}...")
 
         # Query the AssistantAgent with optional image
         response = self._assistant_agent.query(prompt, image_bytes=self._base64_to_bytes(image_base64) if image_base64 else None)
-        self._logger.debug(f"Received response: {response[:200]}...")
 
-        # Parse the response into sub-goals
-        subgoals = self._parse_plan_response(response)
-        self._logger.info(f"Decomposed into {len(subgoals)} sub-goals")
+        # Parse the response into Plan
+        plan = self._parse_plan_response(response)
+        self._logger.info(f"Generated plan with {len(plan.milestones)} milestones")
 
-        return subgoals
-
-    def plan_goal_with_refinement(self, goal: str, context: Dict, constraints: List[str], image_base64: Optional[str], refinement_query: str) -> List[SubGoal]:
-        """
-        Decompose a user goal into sub-goals and refine the plan based on a query.
-
-        Args:
-            goal: The user's goal/task description
-            context: Context including history, past interactions
-            constraints: List of constraints for planning
-            image_base64: Optional base64 encoded image with highlighted UI elements
-            refinement_query: Additional query to refine the plan
-
-        Returns:
-            List of refined SubGoal objects
-        """
-        self._logger.info(f"Planning and refining goal: {goal}")
-
-        # Step 1: Generate raw plan
-        raw_prompt = self._create_planning_prompt(goal, context, constraints)
-        self._logger.debug(f"Generated raw planning prompt: {raw_prompt[:200]}...")
-
-        raw_response = self._assistant_agent.query(raw_prompt , image_bytes=self._base64_to_bytes(image_base64) if image_base64 else None)
-        self._logger.debug(f"Received raw response: {raw_response[:200]}...")
-
-        raw_subgoals = self._parse_plan_response(raw_response)
-        self._logger.info(f"Generated raw plan with {len(raw_subgoals)} sub-goals")
-
-        # Step 2: Refine the raw plan
-        refined_prompt = self._create_refinement_prompt(raw_subgoals, refinement_query)
-        self._logger.debug(f"Generated refinement prompt: {refined_prompt[:200]}...")
-
-        refined_response = self._assistant_agent.query(refined_prompt, image_bytes=self._base64_to_bytes(image_base64) if image_base64 else None)
-        self._logger.debug(f"Received refined response: {refined_response[:200]}...")
-
-        refined_subgoals = self._parse_plan_response(refined_response)
-        self._logger.info(f"Refined plan with {len(refined_subgoals)} sub-goals")
-
-        return refined_subgoals
+        return plan
 
     def _create_planning_prompt(self, goal: str, context: Dict, constraints: List[str]) -> str:
         """
-        Create a structured prompt for goal decomposition.
+        Create a structured prompt for goal decomposition with milestones and subtasks.
 
         Args:
             goal: The user's goal
@@ -147,27 +158,80 @@ You are a task planner for a mobile GUI automation agent.
 {constraints_str}
 
 ## Instructions
-Decompose the user goal into 3-5 sequential sub-goals (milestones).
-Each sub-goal should be a concrete, verifiable step toward the main goal.
+Decompose the user goal into 3-5 sequential MILESTONES (major phases).
+For each milestone, break it down into 2-3 specific SUBTASKS (concrete GUI actions).
+
+Think step-by-step:
+1. What is the ultimate objective?
+2. What are the major phases to achieve it?
+3. For each phase, what specific GUI interactions are needed?
+4. What UI elements need to be found and interacted with?
+5. How can the user verify each subtask succeeded?
 
 ## Output Format
-Respond with a JSON array of sub-goals. Each sub-goal must have:
-- "id": unique identifier (e.g., "sg_1", "sg_2")
-- "description": clear description of what to accomplish
+Respond with a JSON array of milestones. Each milestone must have:
+- "id": unique identifier (e.g., "m_1", "m_2")
+- "description": clear description of the milestone
 - "priority": execution order (1 = first)
-- "estimated_steps": estimated number of GUI actions needed
-- "dependencies": list of sub-goal IDs that must complete first (empty for first sub-goal)
-- "success_criteria": how to verify this sub-goal is complete
+- "estimated_steps": estimated total number of GUI actions for this milestone
+- "dependencies": list of milestone IDs that must complete first (empty for first milestone)
+- "success_criteria": how to verify this milestone is complete
+- "subtasks": array of subtasks, each with:
+  - "id": unique identifier (e.g., "m_1_1", "m_1_2")
+  - "description": specific GUI action description
+  - "action_hint": type of action (click, type, scroll, identify, wait, back)
+  - "expected_ui_element": the UI element to find/interact with
+  - "alternative_ui_elements": alternative names for the same element (e.g., ["Help", "Support"])
 
 Example format:
 [
   {{
-    "id": "sg_1",
-    "description": "Open the settings app",
+    "id": "m_1",
+    "description": "Open Privacy settings",
     "priority": 1,
     "estimated_steps": 2,
     "dependencies": [],
-    "success_criteria": "Settings app is open and visible"
+    "success_criteria": "Privacy settings screen is displayed",
+    "subtasks": [
+      {{
+        "id": "m_1_1",
+        "description": "Locate 'Privacy' in the settings menu",
+        "action_hint": "identify",
+        "expected_ui_element": "Privacy",
+        "alternative_ui_elements": ["Privacy Settings", "Privacy & Security"]
+      }},
+      {{
+        "id": "m_1_2",
+        "description": "Tap 'Privacy' to open the privacy settings",
+        "action_hint": "click",
+        "expected_ui_element": "Privacy",
+        "alternative_ui_elements": []
+      }}
+    ]
+  }},
+  {{
+    "id": "m_2",
+    "description": "Open Ads settings",
+    "priority": 2,
+    "estimated_steps": 2,
+    "dependencies": ["m_1"],
+    "success_criteria": "Ads settings screen is displayed",
+    "subtasks": [
+      {{
+        "id": "m_2_1",
+        "description": "Locate 'Ads' in the privacy menu",
+        "action_hint": "identify",
+        "expected_ui_element": "Ads",
+        "alternative_ui_elements": []
+      }},
+      {{
+        "id": "m_2_2",
+        "description": "Tap 'Ads' to open ads settings",
+        "action_hint": "click",
+        "expected_ui_element": "Ads",
+        "alternative_ui_elements": []
+      }}
+    ]
   }}
 ]
 
@@ -175,89 +239,56 @@ Respond ONLY with the JSON array, no additional text.
 """
         return prompt
 
-    def _create_refinement_prompt(self, raw_subgoals: List[SubGoal], refinement_query: str) -> str:
+    def _parse_plan_response(self, response: str) -> Plan:
         """
-        Create a structured prompt for refining a raw plan.
-
-        Args:
-            raw_subgoals: List of raw SubGoal objects
-            refinement_query: Query to refine the plan
-
-        Returns:
-            Formatted prompt string for the LLM
-        """
-        # Format each sub-goal as a milestone
-        raw_plan_lines = []
-        for sg in raw_subgoals:
-            raw_plan_lines.append(f"Milestone {sg.priority}: {sg.description}")
-            raw_plan_lines.append(f"  - Estimated Steps: {sg.estimated_steps}")
-            raw_plan_lines.append(f"  - Success Criteria: {sg.success_criteria}")
-            if sg.dependencies:
-                raw_plan_lines.append(f"  - Dependencies: {', '.join(sg.dependencies)}")
-            raw_plan_lines.append("")  # Empty line for readability
-        
-        raw_plan_str = "\n".join(raw_plan_lines)
-
-        prompt = f"""
-You are a task planner for a mobile GUI automation agent.
-
-## Raw Plan
-{raw_plan_str}
-
-## Refinement Query
-{refinement_query}
-
-## Instructions
-Refine the raw plan based on the query. Update the sub-goals and subtasks as needed to align with the query.
-
-## Output Format
-Respond with a JSON array of refined sub-goals. Each sub-goal must have:
-- "id": unique identifier (e.g., "sg_1", "sg_2")
-- "description": clear description of what to accomplish
-- "priority": execution order (1 = first)
-- "estimated_steps": estimated number of GUI actions needed
-- "dependencies": list of sub-goal IDs that must complete first (empty for first sub-goal)
-- "success_criteria": how to verify this sub-goal is complete
-
-Example format:
-[
-  {{"id": "sg_1", "description": "Open the settings app", "priority": 1, "estimated_steps": 2, "dependencies": [], "success_criteria": "Settings app is open and visible"}}
-]
-
-Respond ONLY with the JSON array, no additional text.
-"""
-        return prompt
-
-    def _parse_plan_response(self, response: str) -> List[SubGoal]:
-        """
-        Parse the LLM response into SubGoal objects.
+        Parse the LLM response into a Plan object with Milestones and SubTasks.
 
         Args:
             response: Raw response string from the LLM
 
         Returns:
-            List of SubGoal objects
+            Plan object with milestones and subtasks
         """
         import json
 
         try:
             data = json.loads(response)
-            subgoals = []
+            milestones = []
 
             for item in data:
-                subgoal = SubGoal(
+                # Parse subtasks
+                subtasks = []
+                if "subtasks" in item:
+                    for st in item["subtasks"]:
+                        # Convert action_hint string to ActionType enum
+                        action_type = ActionType(st["action_hint"])
+                        
+                        subtask = SubTask(
+                            id=st["id"],
+                            description=st["description"],
+                            action_hint=action_type,
+                            expected_ui_element=st["expected_ui_element"],
+                            alternative_ui_elements=st.get("alternative_ui_elements", [])
+                        )
+                        subtasks.append(subtask)
+                
+                # Create milestone
+                milestone = Milestone(
                     id=item["id"],
                     description=item["description"],
                     priority=item["priority"],
                     estimated_steps=item["estimated_steps"],
                     dependencies=item.get("dependencies", []),
                     success_criteria=item["success_criteria"],
+                    subtasks=subtasks
                 )
-                subgoals.append(subgoal)
+                milestones.append(milestone)
+            
+            # Create and return Plan
+            plan = Plan(milestones=milestones)
+            return plan
 
-            return subgoals
-
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
             self._logger.error(f"Failed to parse response: {response}")
             raise ValueError("Invalid response format") from e
 
