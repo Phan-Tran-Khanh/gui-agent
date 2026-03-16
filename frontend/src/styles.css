@@ -1,0 +1,404 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap");
+
+:root {
+  --bg-1: #07131b;
+  --bg-2: #0f2229;
+  --bg-3: #16343d;
+  --panel: rgba(12, 26, 33, 0.84);
+  --panel-border: rgba(156, 227, 255, 0.25);
+  --accent-1: #5dd7d3;
+  --accent-2: #f3c96b;
+  --accent-3: #f77967;
+  --text-main: #e8fbff;
+  --text-dim: #9fbac2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: radial-gradient(1200px 500px at 20% -20%, rgba(93, 215, 211, 0.2), transparent 70%),
+    radial-gradient(900px 450px at 95% 5%, rgba(243, 201, 107, 0.22), transparent 60%),
+    linear-gradient(145deg, var(--bg-1), var(--bg-2) 45%, var(--bg-3));
+  color: var(--text-main);
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  padding: 1rem;
+  overflow: hidden;
+}
+
+.background-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(157, 224, 249, 0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(157, 224, 249, 0.06) 1px, transparent 1px);
+  background-size: 26px 26px;
+  mask-image: linear-gradient(to bottom, transparent, black 20%, black 85%, transparent);
+}
+
+.stage-header {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1.4fr 2fr auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  background: var(--panel);
+  backdrop-filter: blur(6px);
+  animation: slide-down 0.45s ease;
+}
+
+.stage-header h1 {
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+.stage-header p {
+  margin: 0.35rem 0 0;
+  color: var(--text-dim);
+}
+
+.stage-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: center;
+}
+
+.track-chip {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid rgba(159, 186, 194, 0.35);
+  border-radius: 999px;
+  color: var(--text-dim);
+  text-transform: capitalize;
+  font-size: 0.75rem;
+}
+
+.track-active {
+  color: #041318;
+  background: var(--accent-1);
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.header-actions button,
+.chat-form button {
+  cursor: pointer;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(120deg, var(--accent-1), #6ee2af);
+  color: #052229;
+  font-weight: 700;
+  padding: 0.6rem 1rem;
+}
+
+.header-actions button:hover,
+.chat-form button:hover {
+  filter: brightness(1.08);
+}
+
+.workspace-grid {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1.05fr 1.4fr 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  padding: 0.9rem;
+  min-height: 540px;
+  display: flex;
+  flex-direction: column;
+  animation: reveal 0.55s ease;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.7rem;
+}
+
+.panel-header h2 {
+  margin: 0;
+}
+
+.badge,
+.signal,
+.stage-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid rgba(159, 186, 194, 0.35);
+}
+
+.badge-live,
+.signal-up {
+  color: #081417;
+  background: var(--accent-1);
+  border-color: transparent;
+}
+
+.badge-idle,
+.signal-down {
+  color: #ffd9d1;
+  background: rgba(247, 121, 103, 0.2);
+}
+
+.chat-list,
+.timeline-list {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.chat-bubble {
+  margin-bottom: 0.65rem;
+  border-radius: 12px;
+  padding: 0.65rem 0.8rem;
+}
+
+.chat-bubble p {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.chat-bubble time {
+  display: block;
+  margin-top: 0.4rem;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.chat-user {
+  margin-left: 12%;
+  background: rgba(93, 215, 211, 0.15);
+  border: 1px solid rgba(93, 215, 211, 0.36);
+}
+
+.chat-system {
+  margin-right: 10%;
+  background: rgba(243, 201, 107, 0.12);
+  border: 1px solid rgba(243, 201, 107, 0.35);
+}
+
+.chat-form {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.chat-form textarea {
+  width: 100%;
+  resize: vertical;
+  border-radius: 10px;
+  border: 1px solid rgba(159, 186, 194, 0.4);
+  background: rgba(7, 19, 27, 0.7);
+  color: var(--text-main);
+  font: inherit;
+  padding: 0.7rem;
+}
+
+.subgoal-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.subgoal-chip {
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.76rem;
+  border: 1px solid transparent;
+}
+
+.subgoal-pending {
+  background: rgba(159, 186, 194, 0.14);
+  border-color: rgba(159, 186, 194, 0.4);
+}
+
+.subgoal-active {
+  background: rgba(93, 215, 211, 0.18);
+  border-color: rgba(93, 215, 211, 0.45);
+}
+
+.subgoal-done {
+  background: rgba(147, 237, 152, 0.14);
+  border-color: rgba(147, 237, 152, 0.45);
+}
+
+.subgoal-failed {
+  background: rgba(247, 121, 103, 0.14);
+  border-color: rgba(247, 121, 103, 0.45);
+}
+
+.event-card {
+  border: 1px solid rgba(159, 186, 194, 0.25);
+  border-radius: 12px;
+  padding: 0.68rem;
+  margin-bottom: 0.65rem;
+  background: rgba(9, 23, 31, 0.55);
+  transform: translateY(6px);
+  opacity: 0;
+  animation: card-in 0.35s ease forwards;
+}
+
+.event-card header,
+.event-card footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.event-card p {
+  margin: 0.5rem 0;
+  color: var(--text-dim);
+}
+
+.event-reflecting {
+  border-left: 3px solid var(--accent-2);
+}
+
+.event-replanning {
+  border-left: 3px solid var(--accent-3);
+}
+
+.snapshot-frame {
+  height: 240px;
+  border-radius: 14px;
+  border: 1px solid rgba(159, 186, 194, 0.35);
+  overflow: hidden;
+  background: rgba(5, 16, 22, 0.8);
+}
+
+.snapshot-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.snapshot-placeholder {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  color: var(--text-dim);
+  gap: 0.5rem;
+  padding: 1rem;
+}
+
+.reasoning-box,
+.meta-box {
+  margin-top: 0.75rem;
+  border-radius: 12px;
+  padding: 0.7rem;
+  background: rgba(6, 17, 24, 0.75);
+  border: 1px solid rgba(159, 186, 194, 0.25);
+}
+
+.reasoning-box h3,
+.meta-box h3 {
+  margin: 0 0 0.35rem;
+}
+
+.reasoning-box p,
+.meta-box p {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+@keyframes slide-down {
+  from {
+    transform: translateY(-14px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes reveal {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes card-in {
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1200px) {
+  .stage-header {
+    grid-template-columns: 1fr;
+    gap: 0.8rem;
+  }
+
+  .workspace-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .observability-panel {
+    grid-column: 1 / -1;
+    min-height: 380px;
+  }
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    padding: 0.65rem;
+  }
+
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    min-height: 420px;
+  }
+
+  .chat-user,
+  .chat-system {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}

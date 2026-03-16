@@ -113,6 +113,50 @@ python main.py --goal "Find and open settings" \
                --debug
 ```
 
+## Web Frontend + Streaming Backend
+
+The repository now includes a web backend (`web/`) that exposes task APIs and
+websocket event streaming compatible with the frontend in `frontend/`.
+
+### 1) Install backend dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2) Run backend server
+
+```bash
+uvicorn web.backend:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### 3) Run frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### API Contract
+
+- `POST /api/v1/task/start` with JSON body `{ "goal": "..." }`
+- `GET /api/v1/task/{task_id}` for snapshot + replayable events
+- `POST /api/v1/task/{task_id}/cancel` to stop run
+- `WS /ws/task/{task_id}` for live event streaming
+
+### Current backend behavior
+
+The web backend now routes runs through lightweight module implementations:
+
+- `planning/planner.py` for heuristic sub-goal decomposition
+- `execution/subgoal_executor.py` for deterministic action simulation
+- `reflection/reflector.py` for accomplishment/recovery decisions
+
+This produces stage-aligned events across planning -> executing_subgoal ->
+reflecting -> completed, while keeping interfaces compatible with future
+device-integrated implementations.
+
 ### CLI Parameters
 
 - `--goal` (required): User goal/instruction for the agent
