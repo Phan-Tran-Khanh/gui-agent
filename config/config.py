@@ -34,12 +34,6 @@ class Config(BaseSettings):
         description="The task/goal for the agent to accomplish"
     )
     
-    class Settings:
-        """Pydantic settings for loading from .env file."""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-    
     @field_validator("api_key")
     @classmethod
     def validate_api_key(cls, v: Optional[str]) -> str:
