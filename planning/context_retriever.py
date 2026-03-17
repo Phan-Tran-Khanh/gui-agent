@@ -5,52 +5,92 @@ Responsible for retrieving context information needed for task planning:
 - Interaction history from previous sessions
 - Long-term memory of past tasks
 - Current session context
-
-TODO - Implementation Instructions:
-    1. Define ContextRetriever class with constructor taking config
-    2. Implement retrieve_history(user_id) method:
-        - Load interaction history from database/storage
-        - Return formatted history with timestamps
-        - Consider caching for performance
-    3. Implement retrieve_long_term_memory(user_id) method:
-        - Load learned patterns from past tasks
-        - Extract relevant learnings for current task
-        - Return memory with confidence scores
-    4. Implement format_context() method:
-        - Format history and memory for MLLM consumption
-        - Include session metadata
-        - Return structured context dict
-    5. Add error handling and logging
-    6. Add cache decorator to prevent repeated retrievals
 """
+
+import logging
+from typing import Dict, Any, List, Optional
 
 
 class ContextRetriever:
     """
-    TODO - Implementation Instructions:
-        1. Define __init__(self, config):
-            - Store config
-            - Initialize storage/database connection
-            - Set up logger
-        2. Implement retrieve_history(user_id: str) -> dict:
-            - Load history from storage
-            - Format with timestamps
-            - Limit to recent interactions (e.g., last 10)
-        3. Implement retrieve_long_term_memory(user_id: str) -> dict:
-            - Load learned patterns
-            - Include success/failure statistics
-            - Return with confidence scores
+    Retrieves context information for planning.
+    Currently provides basic structure for history and memory.
+    
+    TODO: Integrate with persistent storage/database for:
+    - Interaction history
+    - Long-term memory of past tasks
+    - User preferences and patterns
     """
-    pass
 
+    def __init__(self, config: Any = None):
+        """
+        Initialize the ContextRetriever.
 
-def retrieve_context_for_planning(user_id: str, session_id: str) -> dict:
-    """
-    TODO - Implementation Instructions:
-        1. Create ContextRetriever instance
-        2. Get history and long-term memory
-        3. Combine into single context structure
-        4. Add session metadata
-        5. Return complete context dict
-    """
-    pass
+        Args:
+            config: Configuration object
+        """
+        self._config = config
+        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger.info("ContextRetriever initialized")
+
+    def retrieve_context(
+        self,
+        user_id: str = "default_user",
+        session_id: str = "current_session"
+    ) -> Dict[str, Any]:
+        """
+        Retrieve complete context for planning.
+
+        Args:
+            user_id: User identifier
+            session_id: Current session identifier
+
+        Returns:
+            Dictionary containing context information
+        """
+        self._logger.debug(f"Retrieving context for user={user_id}, session={session_id}")
+
+        context = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "history": self.retrieve_history(user_id),
+            "long_term_memory": self.retrieve_long_term_memory(user_id)
+        }
+
+        return context
+
+    def retrieve_history(self, user_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve interaction history for the user.
+
+        Args:
+            user_id: User identifier
+
+        Returns:
+            List of past interactions with metadata
+        """
+        self._logger.debug(f"Retrieving history for user={user_id}")
+
+        # TODO: Load from persistent storage
+        # For now, return empty history
+        history = []
+
+        return history
+
+    def retrieve_long_term_memory(self, user_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve long-term memory of past tasks and patterns.
+
+        Args:
+            user_id: User identifier
+
+        Returns:
+            List of learned patterns and past task completions
+        """
+        self._logger.debug(f"Retrieving long-term memory for user={user_id}")
+
+        # TODO: Load learned patterns from persistent storage
+        # For now, return empty memory
+        memory = []
+
+        return memory

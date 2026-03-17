@@ -2,14 +2,15 @@
 """
 GUI Agent - Main CLI Entry Point
 
-Basic initialization of configuration and logging.
-Foundation for future implementation of planning, execution, vision, and reflection modules.
+ASSIST-GUI Pipeline - Step 1: Planner
+Decomposes user goal into milestones and subtasks for mobile GUI automation.
 """
 
 import argparse
 import logging
 import sys
 from pathlib import Path
+import base64
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -17,7 +18,10 @@ load_dotenv()
 
 from config.config import Config, ConfigError
 from mllm.assistant_agent import AssistantAgent
-
+from mllm.planner_agent import PlannerAgent
+from planning.planner import Planner
+from planning.context_retriever import ContextRetriever
+from planning.constraint_retriever import ConstraintRetriever
 
 def setup_logger(debug_mode: bool = False) -> logging.Logger:
     """Configure and return the root logger."""
@@ -36,7 +40,7 @@ def setup_logger(debug_mode: bool = False) -> logging.Logger:
 def setup_cli_parser() -> argparse.ArgumentParser:
     """Set up argument parser for CLI."""
     parser = argparse.ArgumentParser(
-        description="GUI Agent - Mobile Navigation with MLLM",
+        description="GUI Agent - ASSIST-GUI Pipeline Step 1: Planner",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
@@ -56,68 +60,16 @@ def setup_cli_parser() -> argparse.ArgumentParser:
     
     return parser
 
-def test_assistant_agent(config: Config, logger: logging.Logger) -> None:
-    """Test AssistantAgent with a sample screenshot."""
-    logger.info("=" * 60)
-    logger.info("Testing AssistantAgent")
-    logger.info("=" * 60)
-    
-    try:
-        # Initialize AssistantAgent
-        logger.info(f"Initializing AssistantAgent with model: {config.model}")
-        assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key)
-        
-        # Test with sample screenshot if available
-        screenshot_path = Path("img/screen.jpg")
-        
-        if screenshot_path.exists():
-            logger.info(f"Loading screenshot: {screenshot_path}")
-            with open(screenshot_path, "rb") as f:
-                image_bytes = f.read()
-            
-            # Determine MIME type
-            suffix = screenshot_path.suffix.lower()
-            mime_types = {
-                ".png": "image/png",
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".webp": "image/webp"
-            }
-            mime_type = mime_types.get(suffix, "image/png")
-            
-            logger.info(f"Sending screenshot to AssistantAgent with goal: {config.user_goal}")
-            response = assistant_agent.query(
-                prompt=config.user_goal,
-                image_bytes=image_bytes,
-                mime_type=mime_type
-            )
-            
-            logger.info("AssistantAgent Response:")
-            print(f"\n{response}\n")
-        else:
-            # Text-only test
-            logger.info("No screenshot found, testing text-only query")
-            prompt = f"How would I accomplish this on a mobile device: {config.user_goal}"
-            response = assistant_agent.query(prompt=prompt)
-            
-            logger.info("AssistantAgent Response:")
-            print(f"\n{response}\n")
-        
-        logger.info("AssistantAgent test completed successfully!")
-        
-    except Exception as e:
-        logger.error(f"AssistantAgent test failed: {e}")
-
 
 def main():
-    """Main entry point for GUI Agent."""
+    """Main entry point for GUI Agent - Step 1: Planner."""
     parser = setup_cli_parser()
     args = parser.parse_args()
     
     logger = setup_logger(debug_mode=args.debug)
-    logger.info("=" * 60)
-    logger.info("GUI Agent Starting")
-    logger.info("=" * 60)
+    logger.info("=" * 70)
+    logger.info("ASSIST-GUI Pipeline - Step 1: Planner")
+    logger.info("=" * 70)
     
     try:
         # Load configuration
@@ -126,45 +78,52 @@ def main():
         logger.info(f"User Goal: {config.user_goal}")
         logger.debug(f"Config: {config.to_dict()}")
 
-        # Initialize AssistantAgent
-        logger.info(f"Initializing AssistantAgent with model: {config.model}")
-        assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key)
+        # Get annotated image from GUI State Compiler
+        logger.info("")
+        logger.info("Compiling GUI state with UI element highlighting...")                        # TODO: Imp GUI state, returning a base64-encoded      #         gui_compiler = GUIStateComper()
+#         image_base64 = gui_compiler.compile_gui_state()
 
-        # sameple test with screenshot
-        screenshot_path = Path("img/screen.jpg")
-        if screenshot_path.exists():
-            logger.info(f"Loading screenshot: {screenshot_path}")
-            with open(screenshot_path, "rb") as f:
-                image_bytes = f.read()
-            
-            # Determine MIME type
-            suffix = screenshot_path.suffix.lower()
-            mime_types = {
-                ".png": "image/png",
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".webp": "image/webp"
-            }
-            mime_type = mime_types.get(suffix, "image/png")
-    
-            response = assistant_agent.query(
-                prompt=config.user_goal,
-                image_bytes=image_bytes,
-                mime_type=mime_type
-            )
-
-            logger.info("=" * 60)
-            logger.info("ASSISTANT AGENT RESPONSE:")
-            logger.info(f"Response: {response}")
+        # read annotated image from file for testing
+        image_path = Path("img/screen.jpg")
+        image_base64 = None
+        if image_path.exists():
+            with open(image_path, "rb") as f:
+                image_base64 = base64.b64encode(f.read()).decode('utf-8')
+        
+        if image_base64:
+            logger.info("Successfully obtained annotated GUI image")
         else:
-            logger.info("No screenshot found, testing text-only query")
-            prompt = f"How would I accomplish this on a mobile device: {config.user_goal}"
-            response = assistant_agent.query(prompt=prompt)
+            logger.warning("No annotated GUI image available, proceeding with text-only planning")
 
-            logger.info("=" * 60)
-            logger.info("ASSISTANT AGENT RESPONSE:")
-            logger.info(f"Response: {response}")
+        # Initialize dependencies
+        logger.info("")
+        logger.info("Initializing dependencies...")
+        
+        assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key)
+        planner_agent = PlannerAgent(assistant_agent)
+        context_retriever = ContextRetriever(config)
+        constraint_retriever = ConstraintRetriever(config)
 
+        # Initialize Planner with dependencies
+        logger.info("Initializing Planner...")
+        planner = Planner(
+            planner_agent=planner_agent,
+            context_retriever=context_retriever,
+            constraint_retriever=constraint_retriever,
+            logger=logger
+        )
+
+        # Generate plan
+        logger.info("")
+        logger.info("Generating plan for user goal...")
+        logger.info("")
+        
+        plan = planner.plan(
+            user_goal=config.user_goal,
+            image_base64=image_base64
+        )
+
+     
         return 0
         
     except ConfigError as e:

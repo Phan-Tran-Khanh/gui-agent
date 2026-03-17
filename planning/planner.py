@@ -1,111 +1,213 @@
 """
 Task Planner for Planning Phase
 
-Responsible for decomposing user goal into sub-goals/milestones:
+Responsible for decomposing user goal into milestones with subtasks:
 - Accept user goal
 - Retrieve context and constraints
-- Decompose goal using MLLM (Gemini PlannerAgent)
-- Generate prioritized sub-goal list
+- Decompose goal using MLLM (PlannerAgent)
+- Generate prioritized plan with milestones
 
 Reference: https://arxiv.org/abs/2312.13108
-
-TODO - Implementation Instructions:
-    1. Define Planner class with constructor taking config
-    2. Integrate with ContextRetriever and ConstraintRetriever
-    3. Integrate with PlannerAgent from MLLM module
-    4. Implement plan(user_goal, app_category, instruction_category) method:
-        - Retrieve context and constraints
-        - Call PlannerAgent with goal and context
-        - Parse response into sub-goals
-        - Validate sub-goals
-        - Return SubGoal list
-    5. Implement decompose_goal_into_milestones() method:
-        - Uses graph/DAG structure for dependencies
-        - Generates milestone sequence
-        - Estimates steps per milestone
-    6. Implement prioritize_subgoals() method:
-        - Order sub-goals by dependency
-        - Assign confidence scores
-        - Handle parallel vs sequential execution
-    7. Add caching for identical goals
-    8. Add comprehensive logging
-    9. Implement error recovery for invalid decompositions
 """
 
+import logging
 from typing import List, Dict, Any, Optional
-
-
-class SubGoal:
-    """
-    TODO - Implementation Instructions:
-        1. Define __init__ with fields:
-            - id: str (unique identifier)
-            - description: str (natural language description)
-            - priority: int (execution order)
-            - estimated_steps: int (estimated actions needed)
-            - dependencies: List[str] (prerequisite sub-goal ids)
-            - success_criteria: str (how to verify completion)
-        2. Implement __repr__ for debugging
-        3. Add validation method to ensure valid structure
-    """
-    pass
+from mllm.planner_agent import PlannerAgent, Plan, Milestone, SubTask
+from mllm.enums import ExecutionStatus
+from planning.context_retriever import ContextRetriever
+from planning.constraint_retriever import ConstraintRetriever
 
 
 class Planner:
     """
-    TODO - Implementation Instructions:
-        1. Define __init__(self, config):
-            - Store config
-            - Initialize ContextRetriever
-            - Initialize ConstraintRetriever
-            - Initialize PlannerAgent from MLLM
-            - Set up logger
-        2. Implement plan(user_goal: str, app_category: Optional[str], instruction_category: Optional[str]) -> List[SubGoal]:
-            - Call retrieve_context_for_planning()
-            - Call retrieve_constraints_for_planning()
-            - Prompt PlannerAgent with goal, context, constraints
-            - Parse MLLM response into SubGoal objects
-            - Validate generated sub-goals
-            - Call prioritize_subgoals()
-            - Return sorted sub-goals
-        3. Implement decompose_goal_into_milestones(goal: str) -> List[str]:
-            - Break goal into logical milestones
-            - Identify dependencies
-            - Return ordered milestone list
-        4. Implement prioritize_subgoals(subgoals: List[SubGoal]) -> List[SubGoal]:
-            - Topologically sort by dependencies
-            - Assign execution priority
-            - Return ordered subgoals
-        5. Implement validate_subgoals(subgoals: List[SubGoal]) -> bool:
-            - Check no circular dependencies
-            - Verify all subgoals are achievable
-            - Return validation result
+    Task Planner that decomposes user goals into milestones and subtasks.
+    Integrates with PlannerAgent, ContextRetriever, and ConstraintRetriever.
     """
-    pass
 
+    def __init__(
+        self,
+        planner_agent: PlannerAgent,
+        context_retriever: ContextRetriever,
+        constraint_retriever: ConstraintRetriever,
+        logger: logging.Logger
+    ):
+        """
+        Initialize the Planner with required dependencies.
 
-def create_plan_prompt(goal: str, context: Dict, constraints: List[str]) -> str:
-    """
-    TODO - Implementation Instructions:
-        1. Create structured prompt for PlannerAgent
-        2. Include:
-            - User goal clearly stated
-            - Relevant context from history
-            - Applicable constraints
-            - Expected output format (JSON with sub-goals)
-        3. Return formatted prompt string
-    """
-    pass
+        Args:
+            planner_agent: PlannerAgent for LLM-based goal decomposition
+            context_retriever: ContextRetriever for retrieving context
+            constraint_retriever: ConstraintRetriever for retrieving constraints
+            logger: Logger instance for logging
+        """
+        self._planner_agent = planner_agent
+        self._context_retriever = context_retriever
+        self._constraint_retriever = constraint_retriever
+        self._logger = logger
 
+        self._logger.info("Planner initialized")
 
-def parse_plan_response(response: str) -> List[SubGoal]:
-    """
-    TODO - Implementation Instructions:
-        1. Parse MLLM response (likely JSON format)
-        2. Extract sub-goals from response
-        3. Create SubGoal objects
-        4. Validate parsed structure
-        5. Return SubGoal list
-        6. Handle parsing errors gracefully
-    """
-    pass
+    def plan(
+        self,
+        user_goal: str,
+        image_base64: Optional[str] = None,
+        app_category: Optional[str] = None,
+        instruction_category: Optional[str] = None
+    ) -> Plan:
+        """
+        Decompose a user goal into a structured plan with milestones and subtasks.
+
+        Args:
+            user_goal: The user's natural language goal
+            image_base64: Optional base64 encoded image with highlighted UI elements
+            app_category: Category of the target app (e.g., 'settings', 'social', 'shopping')
+            instruction_category: Category of the instruction (e.g., 'navigation', 'data_entry', 'search')
+
+        Returns:
+            Plan object with milestones and subtasks ready for execution
+        """
+        self._logger.info(f"Planning goal: {user_goal}")
+        self._logger.debug(f"App category: {app_category}, Instruction category: {instruction_category}")
+        
+        if image_base64:
+            self._logger.debug("Image data provided for planning")
+
+        # Retrieve context and constraints
+        context = self._context_retriever.retrieve_context()
+        constraints_result = self._constraint_retriever.retrieve_constraints(app_category, instruction_category)
+        constraints = constraints_result["merged_constraints"]
+
+        self._logger.debug(f"Retrieved context with {len(context)} items")
+        self._logger.debug(f"Retrieved {len(constraints)} constraints")
+
+        # Use PlannerAgent to decompose goal (with optional image)
+        try:
+            plan = self._planner_agent.plan_goal(
+                user_goal,
+                context,
+                constraints,
+                image_base64=image_base64
+            )
+            self._logger.info(f"PlannerAgent generated {len(plan.milestones)} milestones")
+        except Exception as e:
+            self._logger.error(f"Failed to plan goal with PlannerAgent: {e}")
+            raise
+
+        # Validate plan
+        self._validate_plan(plan)
+        self._logger.info(f"Validated plan with {len(plan.milestones)} milestones")
+
+        # Log plan summary
+        self._log_plan_summary(plan)
+
+        return plan
+
+    def _validate_plan(self, plan: Plan) -> None:
+        """
+        Validate the generated plan for consistency and correctness.
+
+        Args:
+            plan: Plan object to validate
+
+        Raises:
+            ValueError: If validation fails
+        """
+        self._logger.debug(f"Validating plan with {len(plan.milestones)} milestones")
+
+        # Check for circular dependencies
+        if self._has_circular_dependencies(plan.milestones):
+            raise ValueError("Circular dependencies detected in milestones")
+
+        # Validate each milestone and subtask structure
+        milestone_ids = {m.id for m in plan.milestones}
+        for milestone in plan.milestones:
+            if not milestone.id or not isinstance(milestone.id, str):
+                raise ValueError(f"Invalid milestone ID: {milestone.id}")
+            if not milestone.description or not isinstance(milestone.description, str):
+                raise ValueError(f"Invalid milestone description: {milestone.description}")
+            
+            # Verify dependencies reference existing milestones
+            for dep in milestone.dependencies:
+                if dep not in milestone_ids:
+                    raise ValueError(f"Milestone {milestone.id} references non-existent dependency {dep}")
+            
+            # Validate subtasks
+            if not milestone.subtasks:
+                raise ValueError(f"Milestone {milestone.id} has no subtasks")
+            
+            for subtask in milestone.subtasks:
+                if not subtask.id or not subtask.description or not subtask.action_hint:
+                    raise ValueError(f"Invalid subtask in milestone {milestone.id}: {subtask.id}")
+
+        self._logger.debug("Plan validation completed successfully")
+
+    def _has_circular_dependencies(self, milestones: List[Milestone]) -> bool:
+        """
+        Check if there are circular dependencies in milestones.
+
+        Args:
+            milestones: List of Milestone objects to check
+
+        Returns:
+            True if circular dependencies exist, False otherwise
+        """
+        milestone_map = {m.id: m for m in milestones}
+
+        def has_cycle(m_id: str, visited: set, rec_stack: set) -> bool:
+            """Recursive helper to detect cycles."""
+            visited.add(m_id)
+            rec_stack.add(m_id)
+
+            m = milestone_map.get(m_id)
+            if not m:
+                return False
+
+            for dep_id in m.dependencies:
+                if dep_id not in visited:
+                    if has_cycle(dep_id, visited, rec_stack):
+                        return True
+                elif dep_id in rec_stack:
+                    return True
+
+            rec_stack.remove(m_id)
+            return False
+
+        visited = set()
+        for m in milestones:
+            if m.id not in visited:
+                if has_cycle(m.id, visited, set()):
+                    return True
+
+        return False
+
+    def _log_plan_summary(self, plan: Plan) -> None:
+        """
+        Log a summary of the generated plan.
+
+        Args:
+            plan: Plan object to summarize
+        """
+        self._logger.info("=" * 70)
+        self._logger.info("PLAN SUMMARY")
+        self._logger.info("=" * 70)
+
+        total_subtasks = sum(len(m.subtasks) for m in plan.milestones)
+        self._logger.info(f"Total Milestones: {len(plan.milestones)}")
+        self._logger.info(f"Total Subtasks: {total_subtasks}")
+        self._logger.info("")
+
+        for m in plan.milestones:
+            dep_str = f" (depends on: {', '.join(m.dependencies)})" if m.dependencies else ""
+            self._logger.info(f"[{m.priority}] {m.id}: {m.description}{dep_str}")
+            self._logger.info(f"    Estimated steps: {m.estimated_steps}")
+            self._logger.info(f"    Success criteria: {m.success_criteria}")
+            
+            for st in m.subtasks:
+                self._logger.info(f"      {st.id}: {st.description}")
+                self._logger.info(f"        Action: {st.action_hint.value}, Element: {st.expected_ui_element}")
+                if st.alternative_ui_elements:
+                    self._logger.info(f"        Alternatives: {', '.join(st.alternative_ui_elements)}")
+            
+            self._logger.info("")
+
+        self._logger.info("=" * 70)
