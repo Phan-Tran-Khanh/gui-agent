@@ -71,9 +71,11 @@ class OmniParserClient:
                 if not isinstance(parsed_content, list):
                     raise OmniParserClientError("Invalid parsed_content_list format")
 
+                normalized_parsed_content = self._normalize_parsed_content(parsed_content)
+
                 return ParseScreenResult(
                     request_id=payload.get("request_id"),
-                    parsed_screen=parsed_content,
+                    parsed_screen=normalized_parsed_content,
                     raw_response=payload,
                     latency_ms=latency_ms,
                 )
@@ -148,3 +150,18 @@ class OmniParserClient:
         body = prefix + file_bytes + suffix
         content_type = f"multipart/form-data; boundary={boundary}"
         return body, content_type
+
+    def _normalize_parsed_content(self, parsed_content: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+
+        for element_index, item in enumerate(parsed_content):
+            if isinstance(item, dict):
+                parsed_item = dict(item)
+            else:
+                parsed_item = {"content": str(item)}
+
+            parsed_item["element_index"] = element_index
+
+            normalized.append(parsed_item)
+
+        return normalized
