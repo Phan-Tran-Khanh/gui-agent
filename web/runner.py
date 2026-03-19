@@ -1,14 +1,27 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, List
 
-from execution.subgoal_executor import SubGoalExecutor
-from planning.planner import Planner
-from reflection.reflector import Reflector
 from .event_emitter import EventEmitter
 from .models import AgentEvent, AgentStage, AgentEventType, now_iso
 from .task_manager import TaskManager
+
+
+@dataclass
+class SimpleSubgoal:
+    id: str
+    description: str
+    confidence: float
+
+
+@dataclass
+class SimpleAction:
+    action_type: str
+    target: str
+    confidence: float
+    reasoning: str
 
 
 class AgentRunner:
@@ -21,9 +34,6 @@ class AgentRunner:
     def __init__(self, task_manager: TaskManager, emitter: EventEmitter) -> None:
         self.task_manager = task_manager
         self.emitter = emitter
-        self.planner = Planner()
-        self.subgoal_executor = SubGoalExecutor()
-        self.reflector = Reflector()
 
     async def run(self, task_id: str, goal: str) -> None:
         sequence = 0
@@ -68,7 +78,7 @@ class AgentRunner:
                 description=f"Goal received: {goal}",
             )
 
-            subgoals = self.planner.plan(goal)
+            subgoals = self._build_subgoals(goal)
 
             await emit(
                 stage="planning",
@@ -92,33 +102,51 @@ class AgentRunner:
                     confidence=subgoal.confidence,
                 )
 
-                execution = self.subgoal_executor.execute_subgoal(subgoal, initial_visual_state={})
+                parsed_screen = {
+                    "parser_status": "skipped",
+                    "parser_request_id": None,
+                    "parser_latency_ms": 0.0,
+                    "elements": [],
+                    "elements_count": 0,
+                    "note": "Runner does not own screen capture/parse. Use /api/v1/screen/parse in backend.",
+                }
 
-                for action in execution.actions_taken:
-                    await emit(
-                        stage="executing_subgoal",
-                        event_type="action_decided",
-                        title=f"Action decided: {action.action_type}",
-                        description=f"Target: {action.target}",
-                        subgoal_id=subgoal.id,
-                        subgoal_index=index,
-                        confidence=action.confidence,
-                        reasoning=action.reasoning,
-                    )
-                    await asyncio.sleep(0.2)
+                await emit(
+                    stage="executing_subgoal",
+                    event_type="gui_state_updated",
+                    title="GUI state update",
+                    description="Runner skipped parser call in this flow.",
+                    subgoal_id=subgoal.id,
+                    subgoal_index=index,
+                    metadata=parsed_screen,
+                )
 
-                    await emit(
-                        stage="executing_subgoal",
-                        event_type="action_executed",
-                        title=f"Action executed: {action.action_type}",
-                        description="Action completed in executor simulation.",
-                        subgoal_id=subgoal.id,
-                        subgoal_index=index,
-                        confidence=action.confidence,
-                    )
-                    await asyncio.sleep(0.15)
+                action = self._decide_action(subgoal, parsed_screen["elements"])
 
-                reflection = self.reflector.reflect(execution, subgoal, gui_state={})
+                await emit(
+                    stage="executing_subgoal",
+                    event_type="action_decided",
+                    title=f"Action decided: {action.action_type}",
+                    description=f"Target: {action.target}",
+                    subgoal_id=subgoal.id,
+                    subgoal_index=index,
+                    confidence=action.confidence,
+                    reasoning=action.reasoning,
+                )
+                await asyncio.sleep(0.2)
+
+                await emit(
+                    stage="executing_subgoal",
+                    event_type="action_executed",
+                    title=f"Action executed: {action.action_type}",
+                    description="Action completed in executor simulation.",
+                    subgoal_id=subgoal.id,
+                    subgoal_index=index,
+                    confidence=action.confidence,
+                )
+                await asyncio.sleep(0.15)
+
+                reflection = self._reflect_subgoal(parsed_screen["elements"])
 
                 await emit(
                     stage="reflecting",
@@ -183,3 +211,44 @@ class AgentRunner:
                 title="Task failed",
                 description=str(exc),
             )
+
+    def _build_subgoals(self, goal: str) -> List[SimpleSubgoal]:
+        return [
+            SimpleSubgoal(id="sg-1", description=f"Open target app for goal: {goal}", confidence=0.82),
+            SimpleSubgoal(id="sg-2", description="Navigate to target screen", confidence=0.80),
+            SimpleSubgoal(id="sg-3", description="Perform final confirmation action", confidence=0.78),
+        ]
+
+    def _decide_action(self, subgoal: SimpleSubgoal, parsed_elements: list) -> SimpleAction:
+        if parsed_elements:
+            first = parsed_elements[0]
+            target = str(first.get("content") or first.get("type") or "detected element")
+            return SimpleAction(
+                action_type="CLICK",
+                target=target,
+                confidence=0.84,
+                reasoning="Detected UI elements from parsed_screen; selecting top-ranked candidate.",
+            )
+
+        return SimpleAction(
+            action_type="WAIT",
+            target="screen",
+            confidence=0.55,
+            reasoning="No parsed elements available; wait-and-retry fallback.",
+        )
+
+    def _reflect_subgoal(self, parsed_elements: list):
+        class _Reflection:
+            def __init__(self, is_accomplished: bool) -> None:
+                self.is_accomplished = is_accomplished
+                self.recovery_action = "continue" if is_accomplished else "expand"
+                self.replan_request = None if is_accomplished else {"reason": "No parsed elements"}
+
+            def to_dict(self) -> dict:
+                return {
+                    "is_accomplished": self.is_accomplished,
+                    "recovery_action": self.recovery_action,
+                    "replan_request": self.replan_request,
+                }
+
+        return _Reflection(is_accomplished=bool(parsed_elements))
