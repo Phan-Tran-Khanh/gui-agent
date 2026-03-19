@@ -221,13 +221,17 @@ def draw_parsed_elements(
             text_scale, text_padding, text_thickness, thickness.
             Defaults to OmniParser desktop defaults if None.
     """
+    elements = _extract_parsed_content_list(parsed_content_list)
+    if not elements:
+        raise ValueError("No parsed elements to draw")
+
     image = Image.open(image_path).convert("RGB")
     w, h = image.size
     image_np = np.asarray(image)
 
-    filtered_boxes = torch.tensor([box["bbox"] for box in parsed_content_list])
+    filtered_boxes = torch.tensor([box["bbox"] for box in elements], dtype=torch.float32)
     filtered_boxes = box_convert(boxes=filtered_boxes, in_fmt="xyxy", out_fmt="cxcywh")
-    phrases = list(range(len(filtered_boxes)))
+    phrases = [_build_element_label(item, idx) for idx, item in enumerate(elements)]
 
     cfg = draw_bbox_config or {"text_scale": 0.4, "text_padding": 5}
     annotated_frame, _ = annotate(
@@ -239,3 +243,25 @@ def draw_parsed_elements(
     )
 
     Image.fromarray(annotated_frame).save(output_path)
+
+
+def _extract_parsed_content_list(payload) -> list:
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        raise TypeError("parsed payload must be a list or dict")
+
+    if isinstance(payload.get("parsed_screen"), list):
+        return payload["parsed_screen"]
+    if isinstance(payload.get("parsed_content_list"), list):
+        return payload["parsed_content_list"]
+
+    raise ValueError("Could not find parsed list in payload")
+
+
+def _build_element_label(item: dict, fallback_index: int) -> str:
+    element_index = item.get("element_index")
+    if isinstance(element_index, int):
+        return str(element_index)
+
+    return str(fallback_index)
