@@ -251,8 +251,8 @@ class SequentialExecutor:
                 self.logger.info("-" * 80)
 
                 annotated_image_path = output_path / f"step_{step_count}_annotated.png"
+                temp_screenshot_path = output_path / f"step_{step_count}_raw.png"
                 try:
-                    temp_screenshot_path = output_path / f"step_{step_count}_raw.png"
                     with open(temp_screenshot_path, "wb") as f:
                         f.write(current_screenshot)
 
@@ -282,6 +282,7 @@ class SequentialExecutor:
 
                 # Emit GUI state updated event
                 if task_id and self.sequential_runner:
+                    raw_screenshot_url = f"/output/{temp_screenshot_path.name}?t={int(time.time() * 1000)}"
                     await self.sequential_runner.emit(
                         task_id=task_id,
                         stage="executing_subgoal",
@@ -289,10 +290,12 @@ class SequentialExecutor:
                         title=f"Step {step_count}: GUI State Parsed",
                         description=f"Detected {len(parse_result.parsed_screen)} UI elements",
                         subgoal_index=step_count,
+                        screenshot_url=raw_screenshot_url,
                         metadata={
                             "step": step_count,
                             "elements_count": len(parse_result.parsed_screen),
                             "parse_latency_ms": parse_result.latency_ms,
+                            "raw_screenshot_url": raw_screenshot_url,
                         },
                     )
 

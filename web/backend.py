@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
@@ -19,6 +20,7 @@ from .event_emitter import EventEmitter
 from .omniparser_client import OmniParserClient, OmniParserClientError
 from .runner import AgentRunner
 from .sequential_executor import SequentialExecutor
+from .sequential_runner import SequentialRunner
 from .task_manager import TaskManager
 from config.config import Config
 
@@ -26,6 +28,7 @@ from config.config import Config
 task_manager = TaskManager()
 emitter = EventEmitter()
 runner = AgentRunner(task_manager=task_manager, emitter=emitter)
+sequential_runner = SequentialRunner(task_manager=task_manager, emitter=emitter)
 
 # Load environment variables from gui-agent/.env when present.
 load_dotenv()
@@ -84,6 +87,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+output_dir_path = os.path.abspath("output")
+os.makedirs(output_dir_path, exist_ok=True)
+app.mount("/output", StaticFiles(directory=output_dir_path), name="output")
 
 
 class StartTaskRequest(BaseModel):
@@ -210,6 +217,7 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
             omniparser_client=omniparser_client,
             config=config,
             logger=logger,
+            sequential_runner=sequential_runner,
             max_steps=payload.max_steps,
             step_delay_sec=payload.step_delay_sec,
         )
