@@ -19,6 +19,8 @@ from .event_emitter import EventEmitter
 from .omniparser_client import OmniParserClient, OmniParserClientError
 from .runner import AgentRunner
 from .sequential_executor import SequentialExecutor
+from .sequential_runner import SequentialRunner
+
 from .task_manager import TaskManager
 from config.config import Config
 
@@ -26,7 +28,7 @@ from config.config import Config
 task_manager = TaskManager()
 emitter = EventEmitter()
 runner = AgentRunner(task_manager=task_manager, emitter=emitter)
-
+sequentialRunner = SequentialRunner(task_manager=task_manager, emitter=emitter)
 # Load environment variables from gui-agent/.env when present.
 load_dotenv()
 
@@ -212,6 +214,9 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
             logger=logger,
             max_steps=payload.max_steps,
             step_delay_sec=payload.step_delay_sec,
+            sequential_runner=sequentialRunner,  # Pass the runner for event emission
+
+
         )
         logger.info("[sequential/execute] SequentialExecutor created successfully")
 
@@ -330,6 +335,7 @@ async def sequential_execute_backup(payload: SequentialExecutionRequest) -> Dict
             logger=logger,
             max_steps=payload.max_steps,
             step_delay_sec=payload.step_delay_sec,
+            sequential_runner=sequentialRunner,  # Pass the runner for event emission
         )
 
         state = await task_manager.create_task(goal=payload.goal)

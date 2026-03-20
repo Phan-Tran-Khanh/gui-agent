@@ -331,7 +331,6 @@ class SequentialExecutor:
                             event_type="task_completed",
                             title="Goal Achieved",
                             description=f"Goal accomplished in {step_count} steps. {goal_reasoning}",
-                            confidence=0.95,
                         )
                     break
 
@@ -463,7 +462,6 @@ class SequentialExecutor:
                                     title=f"Step {step_count}: Action Executed",
                                     description=f"Executed: {action_dict['action_type']}",
                                     subgoal_index=step_count,
-                                    confidence=0.9,
                                 )
                         else:
                             self.logger.error(f"✗ Action execution failed")

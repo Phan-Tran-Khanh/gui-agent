@@ -27,11 +27,11 @@ export default function App() {
   }, []);
 
   const apiBase = useMemo(
-    () => import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8001/api/v1",
+    () => import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1",
     []
   );
   const wsBase = useMemo(
-    () => import.meta.env.VITE_WS_BASE_URL ?? "ws://localhost:8001/ws",
+    () => import.meta.env.VITE_WS_BASE_URL ?? "ws://localhost:8000/ws",
     []
   );
 
@@ -52,62 +52,67 @@ export default function App() {
     });
   };
 
-  const startLiveTask = async (prompt: string): Promise<void> => {
-    const taskId = createTaskId();
-    dispatch({ type: "new_task", taskId, prompt });
-    setIsRunning(true);
+  // const startLiveTask = async (prompt: string): Promise<void> => {
+  //   const taskId = createTaskId();
+  //   dispatch({ type: "new_task", taskId, prompt });
+  //   setIsRunning(true);
 
-    try {
-      const response = await fetch(`${apiBase}/task/start`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ goal: prompt }),
-      });
+  //   try {
+  //     const response = await fetch(`${apiBase}/task/start`, {
+  //       method: "POST",
+  //       headers: {
+  //         "Content-Type": "application/json",
+  //       },
+  //       body: JSON.stringify({ goal: prompt }),
+  //     });
 
-      if (!response.ok) {
-        throw new Error("backend unavailable");
-      }
+  //     if (!response.ok) {
+  //       throw new Error("backend unavailable");
+  //     }
 
-      const payload = (await response.json()) as { task_id: string };
+  //     const payload = (await response.json()) as { task_id: string };
 
-      console.log("payload", payload);
-      const actualTaskId = payload.task_id || taskId;
+  //     console.log("payload", payload);
+  //     const actualTaskId = payload.task_id || taskId;
 
-      const client = new AgentWsClient();
-      wsRef.current?.disconnect();
-      wsRef.current = client;
-      client.connect(`${wsBase}/task/${actualTaskId}`, {
-        onConnection: (connected) =>
-          dispatch({ type: "connection", connected }),
-        onEvent: appendEvent,
-      });
-    } catch {
-      dispatch({
-        type: "append_message",
-        message: {
-          id: `fallback-${Date.now()}`,
-          role: "system",
-          text: "Backend stream unavailable. Running local simulation stream.",
-          timestamp: new Date().toISOString(),
-        },
-      });
-      dispatch({ type: "connection", connected: false });
-      startMock(taskId);
-    }
-  };
+  //     const client = new AgentWsClient();
+  //     wsRef.current?.disconnect();
+  //     wsRef.current = client;
+  //     client.connect(`${wsBase}/task/${actualTaskId}`, {
+  //       onConnection: (connected) =>
+  //         dispatch({ type: "connection", connected }),
+  //       onEvent: appendEvent,
+  //     });
+  //   } catch {
+  //     dispatch({
+  //       type: "append_message",
+  //       message: {
+  //         id: `fallback-${Date.now()}`,
+  //         role: "system",
+  //         text: "Backend stream unavailable. Running local simulation stream.",
+  //         timestamp: new Date().toISOString(),
+  //       },
+  //     });
+  //     dispatch({ type: "connection", connected: false });
+  //     startMock(taskId);
+  //   }
+  // };
 
   const startSequentialTask = async (prompt: string): Promise<void> => {
     const tempTaskId = createTaskId();
-    dispatch({ type: "new_task", taskId: tempTaskId, prompt });
+    // dispatch({ type: "new_task", taskId: tempTaskId, prompt });
     setIsRunning(true);
 
     try {
-      console.log("Starting sequential execution with temporary task ID:", tempTaskId);
+      console.log(
+        "Starting sequential execution with temporary task ID:",
+        tempTaskId
+      );
 
       // Call API to start sequential execution and get actual task_id from backend
-      const actualTaskId = await startSequentialExecution(apiBase, { goal: prompt });
+      const actualTaskId = await startSequentialExecution(apiBase, {
+        goal: prompt,
+      });
       console.log("Received actual task_id from backend:", actualTaskId);
 
       // Update UI with actual task_id
