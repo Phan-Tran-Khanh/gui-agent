@@ -74,26 +74,41 @@ export async function callSequentialExecute(
 }
 
 /**
- * Start sequential execution and return task_id for WebSocket connection.
- * This is a fire-and-forget approach - the API call runs in the background
- * and events are published via WebSocket.
+ * Start sequential execution and return actual task_id from backend for WebSocket connection.
+ * 
+ * We make a special call to just start the background execution and get the real task_id
+ * that was created on the backend. The actual execution result is handled asynchronously.
  *
  * @param apiBase - Base URL for API
  * @param request - Sequential execution request
- * @param taskId - Task ID for tracking
- * @returns task_id that can be used to connect WebSocket
+ * @returns Promise<task_id> - actual task_id from backend for WebSocket connection
  */
-export function startSequentialExecution(
+export async function startSequentialExecution(
   apiBase: string,
-  request: SequentialExecuteRequest,
-  taskId: string
-): string {
-  // Start the API call in the background without awaiting
-  // Events will be published via WebSocket in real-time
-  callSequentialExecute(apiBase, request, taskId).catch((error) => {
-    console.error("Sequential execution error:", error);
+  request: SequentialExecuteRequest
+): Promise<string> {
+  const payload = {
+    goal: request.goal,
+    device_id: request.device_id || "144321556E009492",
+    base64_image: request.base64_image,
+    max_steps: request.max_steps || 15,
+    step_delay_sec: request.step_delay_sec || 3.0,
+    output_dir: request.output_dir || "output",
+  };
+
+  const response = await fetch(`${apiBase}/sequential/execute`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
 
-  // Return task_id immediately so frontend can connect WebSocket
-  return taskId;
+  if (!response.ok) {
+    throw new Error(`Sequential execute failed: ${response.statusText}`);
+  }
+
+  const result = (await response.json()) as { task_id: string };
+  console.log("Sequential execution started with task_id:", result.task_id);
+  return result.task_id; // Return actual task_id from backend
 }

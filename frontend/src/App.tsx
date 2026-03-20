@@ -27,11 +27,11 @@ export default function App() {
   }, []);
 
   const apiBase = useMemo(
-    () => import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1",
+    () => import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8001/api/v1",
     []
   );
   const wsBase = useMemo(
-    () => import.meta.env.VITE_WS_BASE_URL ?? "ws://localhost:8000/ws",
+    () => import.meta.env.VITE_WS_BASE_URL ?? "ws://localhost:8001/ws",
     []
   );
 
@@ -99,24 +99,27 @@ export default function App() {
   };
 
   const startSequentialTask = async (prompt: string): Promise<void> => {
-    const taskId = createTaskId();
-    dispatch({ type: "new_task", taskId, prompt });
+    const tempTaskId = createTaskId();
+    dispatch({ type: "new_task", taskId: tempTaskId, prompt });
     setIsRunning(true);
 
     try {
-      console.log("Starting sequential execution with task ID:", taskId);
+      console.log("Starting sequential execution with temporary task ID:", tempTaskId);
 
-      // Start the sequential execution API call in the background
-      // The API will emit events via WebSocket using the task_id
-      startSequentialExecution(apiBase, { goal: prompt }, taskId);
+      // Call API to start sequential execution and get actual task_id from backend
+      const actualTaskId = await startSequentialExecution(apiBase, { goal: prompt });
+      console.log("Received actual task_id from backend:", actualTaskId);
 
-      // Connect WebSocket to receive real-time events
+      // Update UI with actual task_id
+      dispatch({ type: "new_task", taskId: actualTaskId, prompt });
+
+      // Connect WebSocket to receive real-time events using actual task_id from backend
       const client = new AgentWsClient();
       wsRef.current?.disconnect();
       wsRef.current = client;
 
-      console.log("Connecting WebSocket to:", `${wsBase}/task/${taskId}`);
-      client.connect(`${wsBase}/task/${taskId}`, {
+      console.log("Connecting WebSocket to:", `${wsBase}/task/${actualTaskId}`);
+      client.connect(`${wsBase}/task/${actualTaskId}`, {
         onConnection: (connected) => {
           console.log("WebSocket connection status:", connected);
           dispatch({ type: "connection", connected });

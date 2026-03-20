@@ -184,8 +184,11 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
             - steps: Array of step details with screenshots, actions, plans
             - completion_message: Summary message
     """
+    logger.info(f"[sequential/execute] Received request: goal={payload.goal}, device_id={payload.device_id}")
+    
     # Validate OmniParser is configured
     if omniparser_client is None:
+        logger.error("[sequential/execute] OmniParser client not configured")
         raise HTTPException(status_code=503, detail="OmniParser client is not configured")
 
     try:
@@ -193,11 +196,15 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
         initial_screenshot = None
         if payload.base64_image:
                 initial_screenshot = base64.b64decode(payload.base64_image, validate=True)
+                logger.info("[sequential/execute] Initial screenshot decoded successfully")
 
         # Load configuration
+        logger.info("[sequential/execute] Loading configuration...")
         config = Config.from_args(None)
+        logger.info("[sequential/execute] Configuration loaded successfully")
 
         # Create sequential executor
+        logger.info("[sequential/execute] Creating SequentialExecutor...")
         seq_executor = SequentialExecutor(
             device_id=payload.device_id,
             omniparser_client=omniparser_client,
@@ -206,52 +213,34 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
             max_steps=payload.max_steps,
             step_delay_sec=payload.step_delay_sec,
         )
+        logger.info("[sequential/execute] SequentialExecutor created successfully")
 
+        # Create task in task manager
+        logger.info(f"[sequential/execute] Creating task for goal: {payload.goal}")
         state = await task_manager.create_task(goal=payload.goal)
+        logger.info(f"[sequential/execute] Task created: task_id={state.task_id}, initial_stage={state.stage}")
 
         async def _run() -> None:
-            await seq_executor.execute(
-                user_goal=payload.goal,
-                task_id=state.task_id,
-                initial_screenshot=initial_screenshot,
-                output_dir=payload.output_dir,
-            )
+            logger.info(f"[sequential/execute] Starting background executor for task {state.task_id}")
+            try:
+                await seq_executor.execute(
+                    user_goal=payload.goal,
+                    task_id=state.task_id,
+                    initial_screenshot=initial_screenshot,
+                    output_dir=payload.output_dir,
+                )
+                logger.info(f"[sequential/execute] Background executor completed for task {state.task_id}")
+            except Exception as exc:
+                logger.exception(f"[sequential/execute] Background executor failed for task {state.task_id}: {exc}")
+                await task_manager.mark_failed(state.task_id, str(exc))
 
         worker = asyncio.create_task(_run())
+        logger.info(f"[sequential/execute] Background task created for task_id={state.task_id}")
 
         await task_manager.set_worker(state.task_id, worker)
+        logger.info(f"[sequential/execute] Worker registered. Returning task_id={state.task_id} to client")
 
-        # Execute the sequential flow
-        # result = await seq_executor.execute(
-        #     user_goal=payload.goal,
-        #     task_id=state.task_id,
-        #     initial_screenshot=initial_screenshot,
-        #     output_dir=payload.output_dir,
-        # )
-
-        # Convert result to JSON-serializable format
-        # return {
-        #     "success": result.success,
-        #     "goal_achieved": result.goal_achieved,
-        #     "total_steps": result.total_steps,
-        #     "completion_message": result.completion_message,
-        #     "timestamp": result.timestamp,
-        #     "errors": result.errors,
-        #     "steps_summary": [
-        #         {
-        #             "step_number": step.step_number,
-        #             "timestamp": step.timestamp,
-        #             "action_executed": step.action_executed,
-        #             "elements_detected": step.elements_detected,
-        #             "goal_achieved": step.goal_achieved,
-        #             "goal_check_reasoning": step.goal_check_reasoning,
-        #             "error": step.error,
-        #             "metadata": step.metadata,
-        #         }
-        #         for step in result.steps
-        #     ],
-        # }
-        return { "task_id": state.task_id,}
+        return { "task_id": state.task_id }
 
         # Execute the sequential flow
         # result = await seq_executor.execute(
@@ -284,9 +273,10 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
         # }
 
     except HTTPException:
+        logger.warning(f"[sequential/execute] HTTP exception raised")
         raise
     except Exception as e:
-        logger.exception(f"Sequential execution failed: {e}")
+        logger.exception(f"[sequential/execute] Unexpected error during sequential execution: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f"Sequential execution failed: {str(e)}")
 
 
@@ -424,30 +414,56 @@ async def cancel_task(task_id: str) -> Dict[str, Any]:
 
 @app.websocket("/ws/task/{task_id}")
 async def stream_task_events(websocket: WebSocket, task_id: str) -> None:
-    state = await task_manager.get_state(task_id)
-    logger.info(f"WebSocket connection for task {task_id} with state: {state.status if state else 'None'}")
+    logger.info(f"[WebSocket] Connection request for task_id={task_id}")
+    
+    # Retry logic: wait up to 2 seconds for task to be created (handles race condition)
+    state = None
+    max_retries = 20
+    retry_delay_ms = 100
+    
+    for attempt in range(max_retries):
+        state = await task_manager.get_state(task_id)
+        if state is not None:
+            logger.info(f"[WebSocket] Task found on attempt {attempt + 1}: task_id={task_id}, stage={state.stage}")
+            break
+        if attempt == 0:
+            logger.warning(f"[WebSocket] Task not found yet (attempt 1/{max_retries}), retrying in {retry_delay_ms}ms...")
+        await asyncio.sleep(retry_delay_ms / 1000.0)
+    
     if state is None:
-        await websocket.close(code=1008)
+        logger.error(f"[WebSocket] Task not found after {max_retries} retries (waited ~2s). Rejecting connection for task_id={task_id}")
+        await websocket.close(code=1008, reason="Task not found")
         return
 
     await websocket.accept()
+    logger.info(f"[WebSocket] Connection accepted for task_id={task_id}")
 
     snapshot = await task_manager.snapshot(task_id)
     if snapshot is not None:
+        event_count = len(snapshot.get("events", []))
+        logger.info(f"[WebSocket] Sending replay buffer: {event_count} events for task_id={task_id}")
         for event in snapshot["events"]:
             await websocket.send_json(event)
+    else:
+        logger.info(f"[WebSocket] No snapshot available for task_id={task_id}")
 
     queue = await emitter.subscribe(task_id)
+    logger.info(f"[WebSocket] Subscribed to live events for task_id={task_id}")
 
     try:
         while True:
             event = await queue.get()
+            logger.debug(f"[WebSocket] Sending event: task_id={task_id}, type={event.type}, title={event.title}")
             await websocket.send_json(event.to_dict())
             if event.type in {"task_completed", "task_failed"}:
+                logger.info(f"[WebSocket] Task ended with type={event.type}. Closing connection for task_id={task_id}")
                 break
     except WebSocketDisconnect:
-        pass
+        logger.info(f"[WebSocket] Client disconnected for task_id={task_id}")
+    except Exception as exc:
+        logger.exception(f"[WebSocket] Unexpected error for task_id={task_id}: {exc}")
     finally:
         await emitter.unsubscribe(task_id, queue)
         if websocket.client_state.name != "DISCONNECTED":
             await websocket.close()
+        logger.info(f"[WebSocket] Connection closed for task_id={task_id}")
