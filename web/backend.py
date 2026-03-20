@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import logging
+import sys
+
 import os
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
@@ -15,7 +18,9 @@ from dotenv import load_dotenv
 from .event_emitter import EventEmitter
 from .omniparser_client import OmniParserClient, OmniParserClientError
 from .runner import AgentRunner
+from .sequential_executor import SequentialExecutor
 from .task_manager import TaskManager
+from config.config import Config
 
 
 task_manager = TaskManager()
@@ -24,6 +29,16 @@ runner = AgentRunner(task_manager=task_manager, emitter=emitter)
 
 # Load environment variables from gui-agent/.env when present.
 load_dotenv()
+
+# Setup logger
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+logger = logging.getLogger("GUIAgentBackend")
 
 
 def _build_omniparser_client_from_env() -> OmniParserClient | None:
@@ -81,6 +96,16 @@ class ParseScreenRequest(BaseModel):
     filename: str = Field(default="screen.png", description="Logical filename for multipart upload")
 
 
+class SequentialExecutionRequest(BaseModel):
+    goal: str = Field(min_length=1, description="User goal to achieve")
+    device_id: str = Field(default="144321556E009492", description="Android device ID")
+    base64_image: Optional[str] = Field(default=None, description="Optional initial screenshot as base64")
+    max_steps: int = Field(default=15, description="Maximum execution steps")
+    step_delay_sec: float = Field(default=3.0, description="Delay after each action in seconds")
+    output_dir: str = Field(default="output", description="Directory to save results")
+    task_id: Optional[str] = Field(default=None, description="Optional task ID for event emission")
+
+
 @app.get("/health")
 async def health() -> Dict[str, str]:
     return {"status": "ok"}
@@ -130,6 +155,247 @@ async def parse_screen(payload: ParseScreenRequest) -> Dict[str, Any]:
     }
 
 
+@app.post("/api/v1/sequential/execute")
+async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, Any]:
+    """
+    Execute a sequential flow: OmniParser → Planner → Executor loop.
+
+    Flow:
+    1. Capture screenshot and parse with OmniParser
+    2. Send annotated screenshot to Planner
+    3. If goal not fulfilled, Planner creates action plan
+    4. Executor performs action, waits 5 seconds, captures new screenshot
+    5. Loop until goal fulfilled or 50 steps reached
+
+    Args:
+        payload: SequentialExecutionRequest with:
+            - goal: User goal (required)
+            - device_id: Android device ID (default: emulator-5554)
+            - base64_image: Optional initial screenshot
+            - max_steps: Maximum execution steps (default: 15)
+            - step_delay_sec: Delay after actions (default: 3.0s)
+            - output_dir: Directory to save results
+
+    Returns:
+        Dictionary with execution result including:
+            - success: Overall success status
+            - goal_achieved: Whether goal was fulfilled
+            - total_steps: Number of steps executed
+            - steps: Array of step details with screenshots, actions, plans
+            - completion_message: Summary message
+    """
+    # Validate OmniParser is configured
+    if omniparser_client is None:
+        raise HTTPException(status_code=503, detail="OmniParser client is not configured")
+
+    try:
+        # Decode initial screenshot if provided
+        initial_screenshot = None
+        if payload.base64_image:
+                initial_screenshot = base64.b64decode(payload.base64_image, validate=True)
+
+        # Load configuration
+        config = Config.from_args(None)
+
+        # Create sequential executor
+        seq_executor = SequentialExecutor(
+            device_id=payload.device_id,
+            omniparser_client=omniparser_client,
+            config=config,
+            logger=logger,
+            max_steps=payload.max_steps,
+            step_delay_sec=payload.step_delay_sec,
+        )
+
+        state = await task_manager.create_task(goal=payload.goal)
+
+        async def _run() -> None:
+            await seq_executor.execute(
+                user_goal=payload.goal,
+                task_id=state.task_id,
+                initial_screenshot=initial_screenshot,
+                output_dir=payload.output_dir,
+            )
+
+        worker = asyncio.create_task(_run())
+
+        await task_manager.set_worker(state.task_id, worker)
+
+        # Execute the sequential flow
+        # result = await seq_executor.execute(
+        #     user_goal=payload.goal,
+        #     task_id=state.task_id,
+        #     initial_screenshot=initial_screenshot,
+        #     output_dir=payload.output_dir,
+        # )
+
+        # Convert result to JSON-serializable format
+        # return {
+        #     "success": result.success,
+        #     "goal_achieved": result.goal_achieved,
+        #     "total_steps": result.total_steps,
+        #     "completion_message": result.completion_message,
+        #     "timestamp": result.timestamp,
+        #     "errors": result.errors,
+        #     "steps_summary": [
+        #         {
+        #             "step_number": step.step_number,
+        #             "timestamp": step.timestamp,
+        #             "action_executed": step.action_executed,
+        #             "elements_detected": step.elements_detected,
+        #             "goal_achieved": step.goal_achieved,
+        #             "goal_check_reasoning": step.goal_check_reasoning,
+        #             "error": step.error,
+        #             "metadata": step.metadata,
+        #         }
+        #         for step in result.steps
+        #     ],
+        # }
+        return { "task_id": state.task_id,}
+
+        # Execute the sequential flow
+        # result = await seq_executor.execute(
+        #     user_goal=payload.goal,
+        #     initial_screenshot=initial_screenshot,
+        #     output_dir=payload.output_dir,
+        # )
+
+        # # Convert result to JSON-serializable format
+        # return {
+        #     "success": result.success,
+        #     "goal_achieved": result.goal_achieved,
+        #     "total_steps": result.total_steps,
+        #     "completion_message": result.completion_message,
+        #     "timestamp": result.timestamp,
+        #     "errors": result.errors,
+        #     "steps_summary": [
+        #         {
+        #             "step_number": step.step_number,
+        #             "timestamp": step.timestamp,
+        #             "action_executed": step.action_executed,
+        #             "elements_detected": step.elements_detected,
+        #             "goal_achieved": step.goal_achieved,
+        #             "goal_check_reasoning": step.goal_check_reasoning,
+        #             "error": step.error,
+        #             "metadata": step.metadata,
+        #         }
+        #         for step in result.steps
+        #     ],
+        # }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Sequential execution failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Sequential execution failed: {str(e)}")
+
+
+@app.post("/api/v1/backup/execute")
+async def sequential_execute_backup(payload: SequentialExecutionRequest) -> Dict[str, Any]:
+    """
+    Execute a sequential flow: OmniParser → Planner → Executor loop.
+
+    Flow:
+    1. Capture screenshot and parse with OmniParser
+    2. Send annotated screenshot to Planner
+    3. If goal not fulfilled, Planner creates action plan
+    4. Executor performs action, waits 5 seconds, captures new screenshot
+    5. Loop until goal fulfilled or 50 steps reached
+
+    Args:
+        payload: SequentialExecutionRequest with:
+            - goal: User goal (required)
+            - device_id: Android device ID (default: emulator-5554)
+            - base64_image: Optional initial screenshot
+            - max_steps: Maximum execution steps (default: 15)
+            - step_delay_sec: Delay after actions (default: 3.0s)
+            - output_dir: Directory to save results
+
+    Returns:
+        Dictionary with execution result including:
+            - success: Overall success status
+            - goal_achieved: Whether goal was fulfilled
+            - total_steps: Number of steps executed
+            - steps: Array of step details with screenshots, actions, plans
+            - completion_message: Summary message
+    """
+    # Validate OmniParser is configured
+    if omniparser_client is None:
+        raise HTTPException(status_code=503, detail="OmniParser client is not configured")
+
+    try:
+        # Decode initial screenshot if provided
+        initial_screenshot = None
+        if payload.base64_image:
+                initial_screenshot = base64.b64decode(payload.base64_image, validate=True)
+
+        # Load configuration
+        config = Config.from_args(None)
+
+        # Create sequential executor
+        seq_executor = SequentialExecutor(
+            device_id=payload.device_id,
+            omniparser_client=omniparser_client,
+            config=config,
+            logger=logger,
+            max_steps=payload.max_steps,
+            step_delay_sec=payload.step_delay_sec,
+        )
+
+        state = await task_manager.create_task(goal=payload.goal)
+
+        async def _run() -> None:
+            await seq_executor.execute(
+                user_goal=payload.goal,
+                task_id=state.task_id,
+                initial_screenshot=initial_screenshot,
+                output_dir=payload.output_dir,
+            )
+
+        worker = asyncio.create_task(_run())
+
+        await task_manager.set_worker(state.task_id, worker)
+
+        # Execute the sequential flow
+        # result = await seq_executor.execute(
+        #     user_goal=payload.goal,
+        #     task_id=state.task_id,
+        #     initial_screenshot=initial_screenshot,
+        #     output_dir=payload.output_dir,
+        # )
+
+        # Convert result to JSON-serializable format
+        # return {
+        #     "success": result.success,
+        #     "goal_achieved": result.goal_achieved,
+        #     "total_steps": result.total_steps,
+        #     "completion_message": result.completion_message,
+        #     "timestamp": result.timestamp,
+        #     "errors": result.errors,
+        #     "steps_summary": [
+        #         {
+        #             "step_number": step.step_number,
+        #             "timestamp": step.timestamp,
+        #             "action_executed": step.action_executed,
+        #             "elements_detected": step.elements_detected,
+        #             "goal_achieved": step.goal_achieved,
+        #             "goal_check_reasoning": step.goal_check_reasoning,
+        #             "error": step.error,
+        #             "metadata": step.metadata,
+        #         }
+        #         for step in result.steps
+        #     ],
+        # }
+        return { "task_id": state.task_id,}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Sequential execution failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Sequential execution failed: {str(e)}")
+
+
+
 @app.post("/api/v1/task/start")
 async def start_task(payload: StartTaskRequest) -> Dict[str, str]:
     state = await task_manager.create_task(goal=payload.goal)
@@ -159,6 +425,7 @@ async def cancel_task(task_id: str) -> Dict[str, Any]:
 @app.websocket("/ws/task/{task_id}")
 async def stream_task_events(websocket: WebSocket, task_id: str) -> None:
     state = await task_manager.get_state(task_id)
+    logger.info(f"WebSocket connection for task {task_id} with state: {state.status if state else 'None'}")
     if state is None:
         await websocket.close(code=1008)
         return

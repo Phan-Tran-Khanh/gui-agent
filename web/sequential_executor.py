@@ -32,6 +32,7 @@ from planning.context_retriever import ContextRetriever
 from planning.planner import Planner
 from utils.box_annotator import draw_parsed_elements
 from web.omniparser_client import OmniParserClient, OmniParserClientError
+from web.goal_completion_checker import GoalCompletionChecker
 
 
 @dataclass
@@ -46,6 +47,7 @@ class ExecutionStep:
     parsed_elements: List[Dict[str, Any]] = field(default_factory=list)
     plan_generated: Optional[Plan] = None
     goal_achieved: bool = False
+    goal_check_reasoning: str = ""
     error: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -73,8 +75,9 @@ class SequentialExecutor:
     3. Annotate screenshot with detected elements
     4. Send annotated screenshot + parsed elements data to Planner with user goal
     5. Planner uses element data to decide which coordinates to click
-    6. If action needed: Executor performs it, waits 5 seconds
-    7. Go to step 1 (loop until goal achieved or 50 steps)
+    6. Check if goal is achieved using GoalCompletionChecker (AssistantAgent)
+    7. If action needed: Executor performs it, waits 5 seconds
+    8. Go to step 1 (loop until goal achieved or 50 steps)
     """
 
     def __init__(
@@ -83,8 +86,9 @@ class SequentialExecutor:
         omniparser_client: OmniParserClient,
         config: Config,
         logger: logging.Logger,
-        max_steps: int = 50,
-        step_delay_sec: float = 5.0,
+        sequential_runner: Optional[Any] = None,
+        max_steps: int = 15,
+        step_delay_sec: float = 3.0,
     ):
         """
         Initialize the Sequential Executor.
@@ -94,13 +98,15 @@ class SequentialExecutor:
             omniparser_client: OmniParserClient instance
             config: Config object with model/api_key
             logger: Logger instance
-            max_steps: Maximum execution steps (default: 50)
-            step_delay_sec: Delay after action execution (default: 5.0 seconds)
+            sequential_runner: Optional SequentialRunner for emitting events
+            max_steps: Maximum execution steps (default: 15)
+            step_delay_sec: Delay after action execution (default: 3.0 seconds)
         """
         self.device_id = device_id
         self.omniparser_client = omniparser_client
         self.config = config
         self.logger = logger
+        self.sequential_runner = sequential_runner
         self.max_steps = max_steps
         self.step_delay_sec = step_delay_sec
 
@@ -119,11 +125,18 @@ class SequentialExecutor:
         # Initialize executor
         self.executor = Executor(device_id=device_id, logger=logger)
 
+        # Initialize goal completion checker
+        self.goal_checker = GoalCompletionChecker(
+            assistant_agent=self.assistant_agent,
+            logger=logger,
+        )
+
         self.logger.info(f"SequentialExecutor initialized for device: {device_id}")
 
     async def execute(
         self,
         user_goal: str,
+        task_id: Optional[str] = None,
         initial_screenshot: Optional[bytes] = None,
         output_dir: str = "output",
     ) -> SequentialExecutionResult:
@@ -132,6 +145,7 @@ class SequentialExecutor:
 
         Args:
             user_goal: The user's goal/prompt (e.g., "Open Settings app")
+            task_id: Optional task ID for event emission via SequentialRunner
             initial_screenshot: Optional initial screenshot bytes (for testing)
             output_dir: Directory to save annotated screenshots and logs
 
@@ -157,6 +171,16 @@ class SequentialExecutor:
             timestamp=datetime.now().isoformat(),
         )
 
+        # Emit task started event
+        if task_id and self.sequential_runner:
+            await self.sequential_runner.emit(
+                task_id=task_id,
+                stage="planning",
+                event_type="task_started",
+                title="Sequential Execution Started",
+                description=f"Goal: {user_goal}",
+            )
+
         # Step 0: Get initial screenshot if not provided
         current_screenshot = initial_screenshot
         if current_screenshot is None:
@@ -165,6 +189,15 @@ class SequentialExecutor:
             if current_screenshot is None:
                 result.errors.append("Failed to capture initial screenshot")
                 result.completion_message = "Failed to capture initial screenshot"
+                
+                if task_id and self.sequential_runner:
+                    await self.sequential_runner.emit(
+                        task_id=task_id,
+                        stage="failed",
+                        event_type="task_failed",
+                        title="Initial Screenshot Failed",
+                        description="Could not capture screenshot from device",
+                    )
                 return result
 
         # Main execution loop
@@ -184,8 +217,6 @@ class SequentialExecutor:
                 self.logger.info("PHASE 1: Parsing screenshot with OmniParser...")
                 self.logger.info("-" * 80)
 
-                self.logger.info(f"Sending screenshot to OmniParser forSending screenshot to OmniParser for parsing...: ",current_screenshot[:10], "...")
-
                 step_data = ExecutionStep(
                     step_number=step_count,
                     timestamp=datetime.now().isoformat(),
@@ -198,7 +229,7 @@ class SequentialExecutor:
                 )
 
                 self.logger.info(
-                    f"✓ Parse completed in {parse_result.latency_ms:.2f}ms"
+                    f" Parse completed in {parse_result.latency_ms:.2f}ms"
                 )
                 self.logger.info(
                     f"  Elements detected: {len(parse_result.parsed_screen)}"
@@ -221,7 +252,6 @@ class SequentialExecutor:
 
                 annotated_image_path = output_path / f"step_{step_count}_annotated.png"
                 try:
-                    # Save current screenshot temporarily to annotate
                     temp_screenshot_path = output_path / f"step_{step_count}_raw.png"
                     with open(temp_screenshot_path, "wb") as f:
                         f.write(current_screenshot)
@@ -244,21 +274,74 @@ class SequentialExecutor:
                     step_data.screenshot_annotated = annotated_screenshot_bytes
 
                     self.logger.info(
-                        f"✓ Screenshot annotated: {annotated_image_path.name}"
+                        f" Screenshot annotated: {annotated_image_path.name}"
                     )
                 except Exception as e:
                     self.logger.warning(f"⚠ Failed to annotate screenshot: {e}")
                     step_data.screenshot_annotated = current_screenshot
 
+                # Emit GUI state updated event
+                if task_id and self.sequential_runner:
+                    await self.sequential_runner.emit(
+                        task_id=task_id,
+                        stage="executing_subgoal",
+                        event_type="gui_state_updated",
+                        title=f"Step {step_count}: GUI State Parsed",
+                        description=f"Detected {len(parse_result.parsed_screen)} UI elements",
+                        subgoal_index=step_count,
+                        metadata={
+                            "step": step_count,
+                            "elements_count": len(parse_result.parsed_screen),
+                            "parse_latency_ms": parse_result.latency_ms,
+                        },
+                    )
+
                 # ====================================================================
-                # PHASE 3: SEND TO PLANNER WITH PARSED ELEMENTS DATA
+                # PHASE 3: CHECK IF GOAL ACHIEVED (Using AssistantAgent)
                 # ====================================================================
                 self.logger.info("")
-                self.logger.info("PHASE 3: Sending to Planner with element data...")
+                self.logger.info("PHASE 3: Checking if goal is achieved...")
                 self.logger.info("-" * 80)
 
-                # Create a context that includes the parsed elements data
-                # This allows the planner to see what elements are on screen
+                goal_achieved, goal_reasoning = self.goal_checker.check_goal_achieved(
+                    user_goal=user_goal,
+                    current_screenshot=current_screenshot,
+                    parsed_elements=parse_result.parsed_screen,
+                    step_count=step_count,
+                    max_steps=self.max_steps,
+                )
+
+                step_data.goal_check_reasoning = goal_reasoning
+
+                if goal_achieved:
+                    step_data.goal_achieved = True
+                    self.logger.info(" GOAL ACHIEVED!")
+                    result.goal_achieved = True
+                    result.success = True
+                    result.total_steps = step_count
+                    result.final_screenshot = current_screenshot
+                    result.completion_message = f"Goal achieved in {step_count} steps"
+                    result.steps.append(step_data)
+                    
+                    # Emit goal achieved event
+                    if task_id and self.sequential_runner:
+                        await self.sequential_runner.emit(
+                            task_id=task_id,
+                            stage="completed",
+                            event_type="task_completed",
+                            title="Goal Achieved",
+                            description=f"Goal accomplished in {step_count} steps. {goal_reasoning}",
+                            confidence=0.95,
+                        )
+                    break
+
+                # ====================================================================
+                # PHASE 4: SEND TO PLANNER WITH PARSED ELEMENTS DATA
+                # ====================================================================
+                self.logger.info("")
+                self.logger.info("PHASE 4: Sending to Planner with element data...")
+                self.logger.info("-" * 80)
+
                 planner_context = self._build_planner_context(
                     user_goal=user_goal,
                     step_number=step_count,
@@ -270,59 +353,43 @@ class SequentialExecutor:
                     f"  Elements available to planner: {len(parse_result.parsed_screen)}"
                 )
 
-                # Send annotated image and parsed elements to planner
                 plan = self.planner.plan(
                     user_goal=planner_context,
                     image_base64=base64.b64encode(annotated_screenshot_bytes).decode(
                         "utf-8"
                     ) if step_data.screenshot_annotated else None,
+                    parsed_elements=parse_result.parsed_screen,
                 )
 
                 step_data.plan_generated = plan
 
-                self.logger.info(f"✓ Plan generated with {len(plan.milestones)} milestones")
+                self.logger.info(f" Plan generated with {len(plan.milestones)} milestones")
                 for milestone in plan.milestones:
                     self.logger.info(
                         f"  [{milestone.priority}] {milestone.id}: {milestone.description}"
                     )
+
                     for subtask in milestone.subtasks:
                         self.logger.info(
-                            f"    └─ {subtask.id}: {subtask.description}"
+                            f"     - {subtask.id}: {subtask.description} (Action: {subtask.action_hint.value}, Element: {subtask.expected_ui_element})"
                         )
-                        self.logger.info(
-                            f"       Action: {subtask.action_hint.value}"
-                        )
-                        self.logger.info(
-                            f"       Element: {subtask.expected_ui_element}"
-                        )
-                        if subtask.coordinates:
-                            self.logger.info(
-                                f"       Coordinates: {subtask.coordinates}"
-                            )
-                        if subtask.confidence:
-                            self.logger.info(
-                                f"       Confidence: {subtask.confidence:.2f}"
-                            )
+                        self.logger.debug(f"       Subtask details: {subtask.coordinates}, {subtask.alternative_ui_elements}")
 
-                # ====================================================================
-                # PHASE 4: CHECK IF GOAL ACHIEVED
-                # ====================================================================
-                self.logger.info("")
-                self.logger.info("PHASE 4: Checking if goal is achieved...")
-                self.logger.info("-" * 80)
-
-                goal_achieved = self._check_goal_achieved(plan, user_goal, step_count)
-
-                if goal_achieved:
-                    step_data.goal_achieved = True
-                    self.logger.info("✓ GOAL ACHIEVED!")
-                    result.goal_achieved = True
-                    result.success = True
-                    result.total_steps = step_count
-                    result.final_screenshot = current_screenshot
-                    result.completion_message = f"Goal achieved in {step_count} steps"
-                    result.steps.append(step_data)
-                    break
+                # Emit plan generated event
+                if task_id and self.sequential_runner:
+                    await self.sequential_runner.emit(
+                        task_id=task_id,
+                        stage="planning",
+                        event_type="plan_generated",
+                        title=f"Step {step_count}: Plan Generated",
+                        description=f"Generated plan with {len(plan.milestones)} milestone(s)",
+                        subgoal_index=step_count,
+                        metadata={
+                            "step": step_count,
+                            "milestones_count": len(plan.milestones),
+                            "milestones": [m.description for m in plan.milestones],
+                        },
+                    )
 
                 # ====================================================================
                 # PHASE 5: EXECUTE NEXT ACTION
@@ -337,7 +404,6 @@ class SequentialExecutor:
                     result.steps.append(step_data)
                     continue
 
-                # Get the first subtask from the first milestone
                 current_milestone = plan.milestones[0]
                 if not current_milestone.subtasks:
                     self.logger.warning("No subtasks in milestone, waiting...")
@@ -355,7 +421,24 @@ class SequentialExecutor:
                 if subtask.coordinates:
                     self.logger.info(f"  Coordinates: {subtask.coordinates}")
 
-                # Convert subtask to action and execute
+                # Emit action decided event
+                if task_id and self.sequential_runner:
+                    await self.sequential_runner.emit(
+                        task_id=task_id,
+                        stage="executing_subgoal",
+                        event_type="action_decided",
+                        title=f"Step {step_count}: Action Decided",
+                        description=f"Action: {subtask.action_hint.value} on {subtask.expected_ui_element}",
+                        subgoal_index=step_count,
+                        reasoning=subtask.description,
+                        metadata={
+                            "step": step_count,
+                            "action_type": subtask.action_hint.value,
+                            "element": subtask.expected_ui_element,
+                            "coordinates": subtask.coordinates,
+                        },
+                    )
+
                 action_dict = self._subtask_to_action(subtask)
                 if action_dict:
                     is_valid, validation_error = adb.validate_action(action_dict)
@@ -368,8 +451,20 @@ class SequentialExecutor:
 
                         if success:
                             self.logger.info(
-                                f"✓ Action executed: {action_dict['action_type']}"
+                                f" Action executed: {action_dict['action_type']}"
                             )
+                            
+                            # Emit action executed event
+                            if task_id and self.sequential_runner:
+                                await self.sequential_runner.emit(
+                                    task_id=task_id,
+                                    stage="executing_subgoal",
+                                    event_type="action_executed",
+                                    title=f"Step {step_count}: Action Executed",
+                                    description=f"Executed: {action_dict['action_type']}",
+                                    subgoal_index=step_count,
+                                    confidence=0.9,
+                                )
                         else:
                             self.logger.error(f"✗ Action execution failed")
                     else:
@@ -404,6 +499,15 @@ class SequentialExecutor:
                 step_data.error = str(e)
                 result.errors.append(f"Step {step_count}: {str(e)}")
                 result.steps.append(step_data)
+                
+                if task_id and self.sequential_runner:
+                    await self.sequential_runner.emit(
+                        task_id=task_id,
+                        stage="failed",
+                        event_type="task_failed",
+                        title=f"Step {step_count}: Error",
+                        description=f"Error occurred: {str(e)}",
+                    )
 
         # ====================================================================
         # FINAL SUMMARY
@@ -417,12 +521,21 @@ class SequentialExecutor:
         result.final_screenshot = current_screenshot
 
         if result.goal_achieved:
-            self.logger.info(f"✓ GOAL ACHIEVED in {step_count} steps!")
+            self.logger.info(f" GOAL ACHIEVED in {step_count} steps!")
         elif step_count >= self.max_steps:
             result.completion_message = (
                 f"Max steps ({self.max_steps}) reached without achieving goal"
             )
             self.logger.info(f"⚠ Max steps ({self.max_steps}) reached")
+            
+            if task_id and self.sequential_runner:
+                await self.sequential_runner.emit(
+                    task_id=task_id,
+                    stage="completed",
+                    event_type="task_completed",
+                    title="Max Steps Reached",
+                    description=f"Reached maximum {self.max_steps} steps without goal completion",
+                )
         else:
             result.completion_message = "Execution stopped"
             self.logger.info("Execution stopped")
@@ -662,21 +775,3 @@ For each action you plan:
             self.logger.error(f"Error converting subtask to action: {e}")
             return None
 
-    def _check_goal_achieved(
-        self, plan: Plan, user_goal: str, step_count: int
-    ) -> bool:
-        """
-        Check if the goal has been achieved based on the plan.
-
-        Args:
-            plan: Generated plan from planner
-            user_goal: Original user goal
-            step_count: Current step number
-
-        Returns:
-            True if goal is considered achieved
-        """
-        if not plan.milestones:
-            return False
-
-        return False

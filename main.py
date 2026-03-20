@@ -154,7 +154,7 @@ def test_planner_and_executor(goal: str, device_id: str, logger: logging.Logger)
         logger.info("-" * 80)
         
         config = Config.from_args(argparse.Namespace(goal=goal, debug=False))
-        logger.info(f"✓ Configuration loaded")
+        logger.info(f" Configuration loaded")
         logger.info(f"  Model: {config.model}")
         logger.info(f"  User Goal: {config.user_goal}")
         
@@ -171,7 +171,7 @@ def test_planner_and_executor(goal: str, device_id: str, logger: logging.Logger)
         if image_path.exists():
             with open(image_path, "rb") as f:
                 image_base64 = base64.b64encode(f.read()).decode('utf-8')
-            logger.info(f"✓ Loaded annotated image from {image_path}")
+            logger.info(f" Loaded annotated image from {image_path}")
         else:
             logger.warning(f"⚠ No annotated image found at {image_path}, proceeding with text-only planning")
         
@@ -188,7 +188,7 @@ def test_planner_and_executor(goal: str, device_id: str, logger: logging.Logger)
             constraint_retriever=constraint_retriever,
             logger=logger
         )
-        logger.info("✓ Planner initialized")
+        logger.info(" Planner initialized")
         
         # ============================================================================
         # PHASE 3: GENERATE PLAN
@@ -202,7 +202,7 @@ def test_planner_and_executor(goal: str, device_id: str, logger: logging.Logger)
             image_base64=image_base64
         )
         
-        logger.info(f"✓ Plan generated with {len(plan.milestones)} milestones")
+        logger.info(f" Plan generated with {len(plan.milestones)} milestones")
         logger.info("")
         logger.info("Generated Plan:")
         for milestone in plan.milestones:
@@ -237,7 +237,7 @@ def test_planner_and_executor(goal: str, device_id: str, logger: logging.Logger)
             device_id=device_id,
             logger=logger
         )
-        logger.info(f"✓ Executor initialized for device: {device_id}")
+        logger.info(f" Executor initialized for device: {device_id}")
         
         # ============================================================================
         # PHASE 5: EXECUTE PLAN
@@ -257,7 +257,7 @@ def test_planner_and_executor(goal: str, device_id: str, logger: logging.Logger)
         
         # Print detailed results for each milestone
         for milestone_result in results:
-            status_symbol = "✓" if milestone_result.success else "✗"
+            status_symbol = "" if milestone_result.success else "✗"
             logger.info(f"{status_symbol} Milestone {milestone_result.milestone_id}: {milestone_result.completed_subtasks} subtasks")
             
             if not milestone_result.success:
@@ -265,7 +265,7 @@ def test_planner_and_executor(goal: str, device_id: str, logger: logging.Logger)
                 logger.error(f"  Error: {milestone_result.error_message}")
             
             for subtask_result in milestone_result.execution_history:
-                subtask_status = "✓" if subtask_result.success else "✗"
+                subtask_status = "" if subtask_result.success else "✗"
                 logger.info(f"  {subtask_status} {subtask_result.subtask_id}: {subtask_result.action_type.value}")
                 if not subtask_result.success:
                     logger.info(f"     Error: {subtask_result.error_message}")
@@ -285,7 +285,7 @@ def test_planner_and_executor(goal: str, device_id: str, logger: logging.Logger)
         logger.info("")
         logger.info("=" * 80)
         if success:
-            logger.info("✓ PIPELINE TEST PASSED - All milestones executed successfully!")
+            logger.info(" PIPELINE TEST PASSED - All milestones executed successfully!")
         else:
             logger.info("✗ PIPELINE TEST FAILED - Execution stopped at first failure")
         logger.info("=" * 80)

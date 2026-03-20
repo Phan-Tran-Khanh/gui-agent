@@ -74,7 +74,7 @@ class Config(BaseSettings):
         """
         try:
             data = {
-                "user_goal": getattr(args, "goal", "")
+                "user_goal": getattr(args, "goal", "open github, repository gui-agent")
             }
             return cls(**data)
         except ValueError as e:
