@@ -34,11 +34,26 @@ export default function App() {
     () => import.meta.env.VITE_WS_BASE_URL ?? "ws://localhost:8000/ws",
     []
   );
+  const apiOrigin = useMemo(() => {
+    try {
+      return new URL(apiBase).origin;
+    } catch {
+      return "http://localhost:8001";
+    }
+  }, [apiBase]);
 
   const appendEvent = (event: AgentEvent) => {
-    dispatch({ type: "append_event", event });
+    const normalizedEvent: AgentEvent = {
+      ...event,
+      screenshotUrl:
+        event.screenshotUrl && event.screenshotUrl.startsWith("/")
+          ? `${apiOrigin}${event.screenshotUrl}`
+          : event.screenshotUrl,
+    };
 
-    if (event.type === "task_completed" || event.type === "task_failed") {
+    dispatch({ type: "append_event", event: normalizedEvent });
+
+    if (normalizedEvent.type === "task_completed" || normalizedEvent.type === "task_failed") {
       setIsRunning(false);
     }
   };

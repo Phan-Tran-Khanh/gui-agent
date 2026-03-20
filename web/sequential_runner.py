@@ -46,6 +46,8 @@ class SequentialRunner:
         subgoal_index: Optional[int] = None,
         confidence: Optional[float] = None,
         reasoning: Optional[str] = None,
+        screenshot_url: Optional[str] = None,
+        screenshot_base64: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
@@ -61,6 +63,8 @@ class SequentialRunner:
             subgoal_index: Optional subgoal index (step number)
             confidence: Optional confidence score (0.0-1.0)
             reasoning: Optional reasoning/explanation
+            screenshot_url: Optional URL of latest screenshot for frontend rendering
+            screenshot_base64: Optional base64 screenshot payload
             metadata: Optional metadata dictionary
         """
         event = AgentEvent(
@@ -76,6 +80,8 @@ class SequentialRunner:
             subgoalIndex=subgoal_index,
             confidence=confidence,
             reasoning=reasoning,
+            screenshotUrl=screenshot_url,
+            screenshotBase64=screenshot_base64,
             metadata=metadata or {},
         )
         

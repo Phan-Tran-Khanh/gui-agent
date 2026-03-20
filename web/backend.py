@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
@@ -86,6 +87,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+output_dir_path = os.path.abspath("output")
+os.makedirs(output_dir_path, exist_ok=True)
+app.mount("/output", StaticFiles(directory=output_dir_path), name="output")
 
 
 class StartTaskRequest(BaseModel):
@@ -212,6 +217,7 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
             omniparser_client=omniparser_client,
             config=config,
             logger=logger,
+            sequential_runner=sequential_runner,
             max_steps=payload.max_steps,
             step_delay_sec=payload.step_delay_sec,
             sequential_runner=sequentialRunner,  # Pass the runner for event emission
