@@ -51,6 +51,7 @@ class Planner:
         self,
         user_goal: str,
         image_base64: Optional[str] = None,
+        parsed_elements: Optional[List[Dict[str, Any]]] = None,
         app_category: Optional[str] = None,
         instruction_category: Optional[str] = None
     ) -> Plan:
@@ -60,6 +61,7 @@ class Planner:
         Args:
             user_goal: The user's natural language goal
             image_base64: Optional base64 encoded image with highlighted UI elements
+            parsed_elements: Optional list of parsed elements from OmniParser with coordinates
             app_category: Category of the target app (e.g., 'settings', 'social', 'shopping')
             instruction_category: Category of the instruction (e.g., 'navigation', 'data_entry', 'search')
 
@@ -71,6 +73,9 @@ class Planner:
         
         if image_base64:
             self._logger.debug("Image data provided for planning")
+        
+        if parsed_elements:
+            self._logger.debug(f"Parsed elements provided: {len(parsed_elements)} elements")
 
         # Retrieve context and constraints
         context = self._context_retriever.retrieve_context()
@@ -80,13 +85,14 @@ class Planner:
         self._logger.debug(f"Retrieved context with {len(context)} items")
         self._logger.debug(f"Retrieved {len(constraints)} constraints")
 
-        # Use PlannerAgent to decompose goal (with optional image)
+        # Use PlannerAgent to decompose goal (with optional image and parsed elements)
         try:
             plan = self._planner_agent.plan_goal(
                 user_goal,
                 context,
                 constraints,
-                image_base64=image_base64
+                image_base64=image_base64,
+                parsed_elements=parsed_elements
             )
             self._logger.info(f"PlannerAgent generated {len(plan.milestones)} milestones")
         except Exception as e:
@@ -194,6 +200,7 @@ class Planner:
         total_subtasks = sum(len(m.subtasks) for m in plan.milestones)
         self._logger.info(f"Total Milestones: {len(plan.milestones)}")
         self._logger.info(f"Total Subtasks: {total_subtasks}")
+        self._logger.info(f"Total Subtasks: {total_subtasks}")
         self._logger.info("")
 
         for m in plan.milestones:
@@ -206,7 +213,7 @@ class Planner:
                 self._logger.info(f"      {st.id}: {st.description}")
                 self._logger.info(f"        Action: {st.action_hint.value}, Element: {st.expected_ui_element}")
                 if st.alternative_ui_elements:
-                    self._logger.info(f"        Alternatives: {', '.join(st.alternative_ui_elements)}")
+                    self._logger.info(f"        Alternatives: {st.alternative_ui_elements}")
             
             self._logger.info("")
 

@@ -6,6 +6,7 @@ import TimelinePanel from "./components/TimelinePanel";
 import { appReducer, initialState } from "./eventReducer";
 import { runMockStream } from "./services/mockStream";
 import { AgentWsClient } from "./services/wsClient";
+import { startSequentialExecution } from "./services/sequentialExecutor";
 import { AgentEvent } from "./types";
 
 function createTaskId(): string {
@@ -25,13 +26,37 @@ export default function App() {
     };
   }, []);
 
-  const apiBase = useMemo(() => import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1", []);
-  const wsBase = useMemo(() => import.meta.env.VITE_WS_BASE_URL ?? "ws://localhost:8000/ws", []);
+  const apiBase = useMemo(
+    () => import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1",
+    []
+  );
+  const wsBase = useMemo(
+    () => import.meta.env.VITE_WS_BASE_URL ?? "ws://localhost:8000/ws",
+    []
+  );
+  const apiOrigin = useMemo(() => {
+    try {
+      return new URL(apiBase).origin;
+    } catch {
+      return "http://localhost:8001";
+    }
+  }, [apiBase]);
 
   const appendEvent = (event: AgentEvent) => {
-    dispatch({ type: "append_event", event });
+    const normalizedEvent: AgentEvent = {
+      ...event,
+      screenshotUrl:
+        event.screenshotUrl && event.screenshotUrl.startsWith("/")
+          ? `${apiOrigin}${event.screenshotUrl}`
+          : event.screenshotUrl,
+    };
 
-    if (event.type === "task_completed" || event.type === "task_failed") {
+    dispatch({ type: "append_event", event: normalizedEvent });
+
+    if (
+      normalizedEvent.type === "task_completed" ||
+      normalizedEvent.type === "task_failed"
+    ) {
       setIsRunning(false);
     }
   };
@@ -41,47 +66,61 @@ export default function App() {
     cancelMockRef.current = runMockStream({
       taskId,
       onEvent: appendEvent,
-      onEnd: () => setIsRunning(false)
+      onEnd: () => setIsRunning(false),
     });
   };
 
-  const startLiveTask = async (prompt: string): Promise<void> => {
-    const taskId = createTaskId();
-    dispatch({ type: "new_task", taskId, prompt });
+  const startSequentialTask = async (prompt: string): Promise<void> => {
+    const tempTaskId = createTaskId();
+    // dispatch({ type: "new_task", taskId: tempTaskId, prompt });
     setIsRunning(true);
 
     try {
-      const response = await fetch(`${apiBase}/task/start`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ goal: prompt })
+      console.log(
+        "Starting sequential execution with temporary task ID:",
+        tempTaskId
+      );
+
+      // Call API to start sequential execution and get actual task_id from backend
+      const actualTaskId = await startSequentialExecution(apiBase, {
+        goal: prompt,
       });
+      console.log("Received actual task_id from backend:", actualTaskId);
 
-      if (!response.ok) {
-        throw new Error("backend unavailable");
-      }
+      // Update UI with actual task_id
+      dispatch({ type: "new_task", taskId: actualTaskId, prompt });
 
-      const payload = (await response.json()) as { task_id: string };
-      const actualTaskId = payload.task_id || taskId;
-
+      // Connect WebSocket to receive real-time events using actual task_id from backend
       const client = new AgentWsClient();
       wsRef.current?.disconnect();
       wsRef.current = client;
+
+      console.log("Connecting WebSocket to:", `${wsBase}/task/${actualTaskId}`);
       client.connect(`${wsBase}/task/${actualTaskId}`, {
-        onConnection: (connected) => dispatch({ type: "connection", connected }),
-        onEvent: appendEvent
+        onConnection: (connected) => {
+          console.log("WebSocket connection status:", connected);
+          dispatch({ type: "connection", connected });
+        },
+        onEvent: (event) => {
+          console.log("Received event:", event.type, event.title);
+          appendEvent(event);
+        },
       });
-    } catch {
-      dispatch({ type: "append_message", message: {
-        id: `fallback-${Date.now()}`,
-        role: "system",
-        text: "Backend stream unavailable. Running local simulation stream.",
-        timestamp: new Date().toISOString()
-      } });
+    } catch (error) {
+      console.error("Sequential execution error:", error);
+      dispatch({
+        type: "append_message",
+        message: {
+          id: `error-${Date.now()}`,
+          role: "system",
+          text: `Sequential execution failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          timestamp: new Date().toISOString(),
+        },
+      });
       dispatch({ type: "connection", connected: false });
-      startMock(taskId);
+      setIsRunning(false);
     }
   };
 
@@ -100,8 +139,16 @@ export default function App() {
       />
 
       <main className="workspace-grid">
-        <ChatPanel messages={state.messages} onSubmit={startLiveTask} isRunning={isRunning} />
-        <TimelinePanel events={state.events} subgoals={state.subgoals} stage={state.stage} />
+        <ChatPanel
+          messages={state.messages}
+          onSubmit={startSequentialTask}
+          isRunning={isRunning}
+        />
+        <TimelinePanel
+          events={state.events}
+          subgoals={state.subgoals}
+          stage={state.stage}
+        />
         <ObservabilityPanel
           connected={state.connected}
           taskId={state.taskId}
