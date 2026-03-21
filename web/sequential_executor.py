@@ -88,7 +88,7 @@ class SequentialExecutor:
         logger: logging.Logger,
         sequential_runner: Optional[Any] = None,
         max_steps: int = 15,
-        step_delay_sec: float = 3.0,
+        step_delay_sec: float = 4.0,
     ):
         """
         Initialize the Sequential Executor.

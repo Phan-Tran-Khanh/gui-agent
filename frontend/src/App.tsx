@@ -53,7 +53,10 @@ export default function App() {
 
     dispatch({ type: "append_event", event: normalizedEvent });
 
-    if (normalizedEvent.type === "task_completed" || normalizedEvent.type === "task_failed") {
+    if (
+      normalizedEvent.type === "task_completed" ||
+      normalizedEvent.type === "task_failed"
+    ) {
       setIsRunning(false);
     }
   };
@@ -66,52 +69,6 @@ export default function App() {
       onEnd: () => setIsRunning(false),
     });
   };
-
-  // const startLiveTask = async (prompt: string): Promise<void> => {
-  //   const taskId = createTaskId();
-  //   dispatch({ type: "new_task", taskId, prompt });
-  //   setIsRunning(true);
-
-  //   try {
-  //     const response = await fetch(`${apiBase}/task/start`, {
-  //       method: "POST",
-  //       headers: {
-  //         "Content-Type": "application/json",
-  //       },
-  //       body: JSON.stringify({ goal: prompt }),
-  //     });
-
-  //     if (!response.ok) {
-  //       throw new Error("backend unavailable");
-  //     }
-
-  //     const payload = (await response.json()) as { task_id: string };
-
-  //     console.log("payload", payload);
-  //     const actualTaskId = payload.task_id || taskId;
-
-  //     const client = new AgentWsClient();
-  //     wsRef.current?.disconnect();
-  //     wsRef.current = client;
-  //     client.connect(`${wsBase}/task/${actualTaskId}`, {
-  //       onConnection: (connected) =>
-  //         dispatch({ type: "connection", connected }),
-  //       onEvent: appendEvent,
-  //     });
-  //   } catch {
-  //     dispatch({
-  //       type: "append_message",
-  //       message: {
-  //         id: `fallback-${Date.now()}`,
-  //         role: "system",
-  //         text: "Backend stream unavailable. Running local simulation stream.",
-  //         timestamp: new Date().toISOString(),
-  //       },
-  //     });
-  //     dispatch({ type: "connection", connected: false });
-  //     startMock(taskId);
-  //   }
-  // };
 
   const startSequentialTask = async (prompt: string): Promise<void> => {
     const tempTaskId = createTaskId();

@@ -217,12 +217,9 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
             omniparser_client=omniparser_client,
             config=config,
             logger=logger,
-            sequential_runner=sequential_runner,
+            sequential_runner=sequentialRunner,
             max_steps=payload.max_steps,
             step_delay_sec=payload.step_delay_sec,
-            sequential_runner=sequentialRunner,  # Pass the runner for event emission
-
-
         )
         logger.info("[sequential/execute] SequentialExecutor created successfully")
 
