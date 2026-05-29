@@ -15,16 +15,15 @@ class AssistantAgent:
     Generic interface for interacting with various LLM providers.
         """
 
-    def __init__(self, model: str, api_key: str):
-        """
-        Initialize the AssistantAgent.
-
-        Args:
-            model: The LLM model (e.g., "gemini-3.1-flash-lite-preview")
-            api_key: API key for the model
-        """
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        request_timeout: int = 60,
+    ):
         self.model = model
         self.api_key = api_key
+        self.request_timeout = request_timeout
         self._logger = logging.getLogger(self.__class__.__name__)
 
         self._logger.info(f"Initialized AssistantAgent with model: {model}")
@@ -63,12 +62,10 @@ class AssistantAgent:
         try:
             response = litellm.completion(
                 model=self.model,
-                messages=[{
-                    "role": "user",
-                    "content": content
-                }],
+                messages=[{"role": "user", "content": content}],
                 api_key=self.api_key,
-                **kwargs
+                timeout=kwargs.pop("timeout", self.request_timeout),
+                **kwargs,
             )
 
             result = response.choices[0].message.content

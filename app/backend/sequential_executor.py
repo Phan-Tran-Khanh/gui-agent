@@ -121,7 +121,7 @@ class SequentialExecutor:
         self.mock = mock
 
         # Initialize planner components
-        self.assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key)
+        self.assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key, request_timeout=config.request_timeout)
         self.planner_agent = PlannerAgent(self.assistant_agent)
         self.context_retriever = ContextRetriever(config)
         self.constraint_retriever = ConstraintRetriever(config)

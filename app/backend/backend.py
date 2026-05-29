@@ -4,9 +4,9 @@ import asyncio
 import base64
 import binascii
 import logging
+import os
 import sys
 
-import os
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
@@ -14,7 +14,6 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv
 
 from .event_emitter import EventEmitter
 from .omniparser_client import OmniParserClient, OmniParserClientError
@@ -24,19 +23,6 @@ from .sequential_runner import SequentialRunner
 
 from .task_manager import TaskManager
 from config.config import Config
-
-
-task_manager = TaskManager()
-emitter = EventEmitter()
-runner = AgentRunner(task_manager=task_manager, emitter=emitter)
-sequentialRunner = SequentialRunner(task_manager=task_manager, emitter=emitter)
-# Load environment variables from gui-agent/.env when present.
-load_dotenv()
-
-# When MOCK_MODE=true all external connections (OmniParser, ADB, LLM) are
-# replaced with canned responses so the full event pipeline can be exercised
-# without a real device or API credentials.
-mock_mode: bool = os.getenv("MOCK_MODE", "").strip().lower() in {"1", "true", "yes"}
 
 # Setup logger
 logging.basicConfig(
@@ -48,24 +34,24 @@ logging.basicConfig(
 
 logger = logging.getLogger("GUIAgentBackend")
 
+startup_config = Config()
+mock_mode: bool = startup_config.mock_mode
 
-def _build_omniparser_client_from_env() -> OmniParserClient | None:
-    parse_base_url = os.getenv("PARSE_API_BASE_URL", "").strip()
-    if not parse_base_url:
-        return None
+task_manager = TaskManager()
+emitter = EventEmitter()
+runner = AgentRunner(task_manager=task_manager, emitter=emitter)
+sequentialRunner = SequentialRunner(task_manager=task_manager, emitter=emitter)
 
-    parse_timeout_sec = float(os.getenv("PARSE_API_TIMEOUT_SEC", "10"))
-    parse_retry_count = int(os.getenv("PARSE_API_RETRY_COUNT", "1"))
-    parse_retry_backoff_ms = int(os.getenv("PARSE_API_RETRY_BACKOFF_MS", "250"))
-    return OmniParserClient(
-        base_url=parse_base_url,
-        timeout_sec=parse_timeout_sec,
-        retry_count=parse_retry_count,
-        retry_backoff_ms=parse_retry_backoff_ms,
+omniparser_client: OmniParserClient | None = (
+    OmniParserClient(
+        base_url=startup_config.parse_api_base_url,
+        timeout_sec=startup_config.parse_api_timeout_sec,
+        retry_count=startup_config.parse_api_retry_count,
+        retry_backoff_ms=startup_config.parse_api_retry_backoff_ms,
     )
-
-
-omniparser_client = _build_omniparser_client_from_env()
+    if startup_config.parse_api_base_url
+    else None
+)
 
 
 @asynccontextmanager
@@ -211,7 +197,7 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
 
         # Load configuration
         logger.info("[sequential/execute] Loading configuration...")
-        config = Config.from_args(None)
+        config = startup_config
         logger.info("[sequential/execute] Configuration loaded successfully")
 
         # Create sequential executor
@@ -332,7 +318,7 @@ async def sequential_execute_backup(payload: SequentialExecutionRequest) -> Dict
                 initial_screenshot = base64.b64decode(payload.base64_image, validate=True)
 
         # Load configuration
-        config = Config.from_args(None)
+        config = startup_config
 
         # Create sequential executor
         seq_executor = SequentialExecutor(

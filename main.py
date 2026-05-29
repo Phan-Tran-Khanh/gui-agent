@@ -12,10 +12,6 @@ import sys
 from pathlib import Path
 import base64
 
-# Load environment variables from .env file
-from dotenv import load_dotenv
-load_dotenv()
-
 from config.config import Config, ConfigError
 from mllm.assistant_agent import AssistantAgent
 from mllm.planner_agent import PlannerAgent
@@ -85,7 +81,7 @@ def test_assistant_agent(config: Config, goal: str, logger: logging.Logger) -> N
     try:
         # Initialize AssistantAgent
         logger.info(f"Initializing AssistantAgent with model: {config.model}")
-        assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key)
+        assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key, request_timeout=config.request_timeout)
         
         # Test with sample screenshot if available
         screenshot_path = Path("img/screen.jpg")
@@ -176,7 +172,7 @@ def test_planner_and_executor(goal: str, device_id: str, logger: logging.Logger)
             logger.warning(f"⚠ No annotated image found at {image_path}, proceeding with text-only planning")
         
         # Initialize agents
-        assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key)
+        assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key, request_timeout=config.request_timeout)
         planner_agent = PlannerAgent(assistant_agent)
         context_retriever = ContextRetriever(config)
         constraint_retriever = ConstraintRetriever(config)
@@ -313,7 +309,7 @@ def main():
             # Run only the planner phase
             config = Config.from_args(None)
 
-            assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key)
+            assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key, request_timeout=config.request_timeout)
             planner_agent = PlannerAgent(assistant_agent)
             context_retriever = ContextRetriever(config)
             constraint_retriever = ConstraintRetriever(config)
