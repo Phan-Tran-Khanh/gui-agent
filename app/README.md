@@ -38,6 +38,7 @@ Key variables:
 |---|---|---|
 | `API_KEY` | _(required)_ | LLM API key |
 | `MODEL` | `gemini/gemini-3.1-flash-lite-preview` | Model identifier |
+| `REQUEST_TIMEOUT` | `60` | LLM API request timeout in seconds |
 | `PARSE_API_BASE_URL` | `http://127.0.0.1:8000` | Base URL of the OmniParser service |
 | `PARSE_API_TIMEOUT_SEC` | `10` | Request timeout in seconds |
 | `PARSE_API_RETRY_COUNT` | `1` | Number of retries on failure |
