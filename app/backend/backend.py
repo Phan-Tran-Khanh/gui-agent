@@ -33,6 +33,11 @@ sequentialRunner = SequentialRunner(task_manager=task_manager, emitter=emitter)
 # Load environment variables from gui-agent/.env when present.
 load_dotenv()
 
+# When MOCK_MODE=true all external connections (OmniParser, ADB, LLM) are
+# replaced with canned responses so the full event pipeline can be exercised
+# without a real device or API credentials.
+mock_mode: bool = os.getenv("MOCK_MODE", "").strip().lower() in {"1", "true", "yes"}
+
 # Setup logger
 logging.basicConfig(
     level=logging.INFO,
@@ -192,11 +197,10 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
             - completion_message: Summary message
     """
     logger.info(f"[sequential/execute] Received request: goal={payload.goal}, device_id={payload.device_id}")
-    
-    # Validate OmniParser is configured
-    if omniparser_client is None:
+
+    if not mock_mode and omniparser_client is None:
         logger.error("[sequential/execute] OmniParser client not configured")
-        raise HTTPException(status_code=503, detail="OmniParser client is not configured")
+        raise HTTPException(status_code=503, detail="OmniParser client is not configured. Set MOCK_MODE=true to run without it.")
 
     try:
         # Decode initial screenshot if provided
@@ -211,7 +215,7 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
         logger.info("[sequential/execute] Configuration loaded successfully")
 
         # Create sequential executor
-        logger.info("[sequential/execute] Creating SequentialExecutor...")
+        logger.info("[sequential/execute] Creating SequentialExecutor (mock=%s)...", mock_mode)
         seq_executor = SequentialExecutor(
             device_id=payload.device_id,
             omniparser_client=omniparser_client,
@@ -220,6 +224,7 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
             sequential_runner=sequentialRunner,
             max_steps=payload.max_steps,
             step_delay_sec=payload.step_delay_sec,
+            mock=mock_mode,
         )
         logger.info("[sequential/execute] SequentialExecutor created successfully")
 
@@ -317,9 +322,8 @@ async def sequential_execute_backup(payload: SequentialExecutionRequest) -> Dict
             - steps: Array of step details with screenshots, actions, plans
             - completion_message: Summary message
     """
-    # Validate OmniParser is configured
-    if omniparser_client is None:
-        raise HTTPException(status_code=503, detail="OmniParser client is not configured")
+    if not mock_mode and omniparser_client is None:
+        raise HTTPException(status_code=503, detail="OmniParser client is not configured. Set MOCK_MODE=true to run without it.")
 
     try:
         # Decode initial screenshot if provided
@@ -338,7 +342,8 @@ async def sequential_execute_backup(payload: SequentialExecutionRequest) -> Dict
             logger=logger,
             max_steps=payload.max_steps,
             step_delay_sec=payload.step_delay_sec,
-            sequential_runner=sequentialRunner,  # Pass the runner for event emission
+            sequential_runner=sequentialRunner,
+            mock=mock_mode,
         )
 
         state = await task_manager.create_task(goal=payload.goal)

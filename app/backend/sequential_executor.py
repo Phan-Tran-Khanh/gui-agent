@@ -22,6 +22,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# Minimal 1×1 gray PNG returned by mock screenshot capture.
+_MOCK_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
 from adb import adb
 from config.config import Config
 from execution.executor import Executor
@@ -31,8 +36,8 @@ from planning.constraint_retriever import ConstraintRetriever
 from planning.context_retriever import ContextRetriever
 from planning.planner import Planner
 from utils.box_annotator import draw_parsed_elements
-from web.omniparser_client import OmniParserClient, OmniParserClientError
-from web.goal_completion_checker import GoalCompletionChecker
+from .omniparser_client import OmniParserClient, OmniParserClientError, ParseScreenResult
+from .goal_completion_checker import GoalCompletionChecker
 
 
 @dataclass
@@ -83,24 +88,28 @@ class SequentialExecutor:
     def __init__(
         self,
         device_id: str,
-        omniparser_client: OmniParserClient,
+        omniparser_client: Optional[OmniParserClient],
         config: Config,
         logger: logging.Logger,
         sequential_runner: Optional[Any] = None,
         max_steps: int = 15,
         step_delay_sec: float = 4.0,
+        mock: bool = False,
     ):
         """
         Initialize the Sequential Executor.
 
         Args:
             device_id: Android device ID for ADB
-            omniparser_client: OmniParserClient instance
+            omniparser_client: OmniParserClient instance (may be None when mock=True)
             config: Config object with model/api_key
             logger: Logger instance
             sequential_runner: Optional SequentialRunner for emitting events
             max_steps: Maximum execution steps (default: 15)
             step_delay_sec: Delay after action execution (default: 3.0 seconds)
+            mock: When True all external calls (OmniParser, ADB, LLM) return canned
+                  data so the full event pipeline can be exercised without real devices
+                  or API keys.
         """
         self.device_id = device_id
         self.omniparser_client = omniparser_client
@@ -109,6 +118,7 @@ class SequentialExecutor:
         self.sequential_runner = sequential_runner
         self.max_steps = max_steps
         self.step_delay_sec = step_delay_sec
+        self.mock = mock
 
         # Initialize planner components
         self.assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key)
@@ -185,7 +195,7 @@ class SequentialExecutor:
         current_screenshot = initial_screenshot
         if current_screenshot is None:
             self.logger.info("Capturing initial screenshot from device...")
-            current_screenshot = self._capture_screenshot_from_device()
+            current_screenshot = self._mock_screenshot() if self.mock else self._capture_screenshot_from_device()
             if current_screenshot is None:
                 result.errors.append("Failed to capture initial screenshot")
                 result.completion_message = "Failed to capture initial screenshot"
@@ -223,9 +233,13 @@ class SequentialExecutor:
                     screenshot_before=current_screenshot,
                 )
 
-                parse_result = await self.omniparser_client.parse_screen(
-                    image_bytes=current_screenshot,
-                    filename=f"step_{step_count}.png",
+                parse_result = (
+                    self._mock_parse_screen(step_count)
+                    if self.mock
+                    else await self.omniparser_client.parse_screen(
+                        image_bytes=current_screenshot,
+                        filename=f"step_{step_count}.png",
+                    )
                 )
 
                 self.logger.info(
@@ -306,13 +320,16 @@ class SequentialExecutor:
                 self.logger.info("PHASE 3: Checking if goal is achieved...")
                 self.logger.info("-" * 80)
 
-                goal_achieved, goal_reasoning = self.goal_checker.check_goal_achieved(
-                    user_goal=user_goal,
-                    current_screenshot=current_screenshot,
-                    parsed_elements=parse_result.parsed_screen,
-                    step_count=step_count,
-                    max_steps=self.max_steps,
-                )
+                if self.mock:
+                    goal_achieved, goal_reasoning = self._mock_goal_check(step_count)
+                else:
+                    goal_achieved, goal_reasoning = self.goal_checker.check_goal_achieved(
+                        user_goal=user_goal,
+                        current_screenshot=current_screenshot,
+                        parsed_elements=parse_result.parsed_screen,
+                        step_count=step_count,
+                        max_steps=self.max_steps,
+                    )
 
                 step_data.goal_check_reasoning = goal_reasoning
 
@@ -355,12 +372,16 @@ class SequentialExecutor:
                     f"  Elements available to planner: {len(parse_result.parsed_screen)}"
                 )
 
-                plan = self.planner.plan(
-                    user_goal=planner_context,
-                    image_base64=base64.b64encode(annotated_screenshot_bytes).decode(
-                        "utf-8"
-                    ) if step_data.screenshot_annotated else None,
-                    parsed_elements=parse_result.parsed_screen,
+                plan = (
+                    self._mock_plan()
+                    if self.mock
+                    else self.planner.plan(
+                        user_goal=planner_context,
+                        image_base64=base64.b64encode(annotated_screenshot_bytes).decode("utf-8")
+                        if step_data.screenshot_annotated
+                        else None,
+                        parsed_elements=parse_result.parsed_screen,
+                    )
                 )
 
                 step_data.plan_generated = plan
@@ -443,11 +464,14 @@ class SequentialExecutor:
 
                 action_dict = self._subtask_to_action(subtask)
                 if action_dict:
-                    is_valid, validation_error = adb.validate_action(action_dict)
+                    if self.mock:
+                        is_valid, validation_error = True, ""
+                        success = True
+                    else:
+                        is_valid, validation_error = adb.validate_action(action_dict)
+                        success = adb.execute_action(action_dict, self.device_id) if is_valid else False
+
                     if is_valid:
-                        success = adb.execute_action(
-                            action_dict, self.device_id
-                        )
                         step_data.action_executed = action_dict.get("action_type")
                         step_data.metadata["action_details"] = action_dict
 
@@ -455,8 +479,7 @@ class SequentialExecutor:
                             self.logger.info(
                                 f" Action executed: {action_dict['action_type']}"
                             )
-                            
-                            # Emit action executed event
+
                             if task_id and self.sequential_runner:
                                 await self.sequential_runner.emit(
                                     task_id=task_id,
@@ -486,7 +509,7 @@ class SequentialExecutor:
                 await asyncio.sleep(self.step_delay_sec)
 
                 self.logger.info("Capturing next screenshot...")
-                current_screenshot = self._capture_screenshot_from_device()
+                current_screenshot = self._mock_screenshot() if self.mock else self._capture_screenshot_from_device()
                 if current_screenshot is None:
                     error_msg = "Failed to capture screenshot after action"
                     self.logger.error(error_msg)
@@ -656,6 +679,61 @@ For each action you plan:
             self.logger.debug(
                 f"  [{idx}] {element_type}: '{content}' bbox={bbox}"
             )
+
+    # ------------------------------------------------------------------
+    # Mock helpers — used when self.mock is True
+    # ------------------------------------------------------------------
+
+    def _mock_screenshot(self) -> bytes:
+        self.logger.info("[MOCK] Returning synthetic screenshot")
+        return _MOCK_PNG
+
+    def _mock_parse_screen(self, step: int) -> "ParseScreenResult":
+        self.logger.info(f"[MOCK] Returning synthetic OmniParser result for step {step}")
+        return ParseScreenResult(
+            request_id=f"mock-{step}",
+            parsed_screen=[
+                {"type": "button", "content": "Settings", "bbox": [0.1, 0.2, 0.4, 0.25], "interactivity": True, "element_index": 0},
+                {"type": "text", "content": "Home Screen", "bbox": [0.3, 0.05, 0.7, 0.1], "interactivity": False, "element_index": 1},
+                {"type": "icon", "content": "Apps", "bbox": [0.6, 0.8, 0.75, 0.9], "interactivity": True, "element_index": 2},
+            ],
+            latency_ms=1.0,
+        )
+
+    def _mock_goal_check(self, step: int) -> tuple[bool, str]:
+        if step >= 2:
+            self.logger.info("[MOCK] Goal marked achieved at step %d", step)
+            return True, "Mock: simulated goal achieved after one action cycle"
+        self.logger.info("[MOCK] Goal not yet achieved at step %d — will plan and act", step)
+        return False, "Mock: proceeding with planning and action"
+
+    def _mock_plan(self) -> "Plan":
+        from mllm.planner_agent import Plan, Milestone, SubTask
+        from mllm.enums import ActionType
+        self.logger.info("[MOCK] Returning synthetic plan")
+        return Plan(
+            milestones=[
+                Milestone(
+                    id="m_1",
+                    description="Mock: tap Settings icon",
+                    priority=1,
+                    estimated_steps=1,
+                    dependencies=[],
+                    success_criteria="Settings app is open",
+                    subtasks=[
+                        SubTask(
+                            id="m_1_1",
+                            description="Mock: tap on Settings button",
+                            action_hint=ActionType.CLICK,
+                            expected_ui_element="Settings",
+                            coordinates=[540, 960],
+                        )
+                    ],
+                )
+            ]
+        )
+
+    # ------------------------------------------------------------------
 
     def _capture_screenshot_from_device(self) -> Optional[bytes]:
         """

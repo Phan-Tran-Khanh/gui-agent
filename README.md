@@ -14,6 +14,10 @@ This project implements a complete GUI agent framework that follows this workflo
 
 ```
 gui-agent/
+├── app/
+│   ├── backend/                     # FastAPI web backend (formerly web/)
+│   ├── frontend/                    # React + TypeScript UI (formerly frontend/)
+│   └── README.md                    # Web app setup & run instructions
 ├── main.py                          # CLI entry point
 ├── config/
 │   ├── __init__.py
@@ -115,27 +119,22 @@ python main.py --goal "Find and open settings" \
 
 ## Web Frontend + Streaming Backend
 
-The repository now includes a web backend (`web/`) that exposes task APIs and
-websocket event streaming compatible with the frontend in `frontend/`.
+The repository now includes a web application under `app/` with:
 
-### 1) Install backend dependencies
+- `app/backend/` — FastAPI server exposing task APIs and WebSocket event streaming
+- `app/frontend/` — React + TypeScript (Vite) UI
+
+See [app/README.md](app/README.md) for full setup and run instructions.
+
+### Quick start
 
 ```bash
+# Backend (from project root)
 pip install -r requirements.txt
-```
+uvicorn app.backend.backend:app --host 0.0.0.0 --port 8000 --reload
 
-### 2) Run backend server
-
-```bash
-uvicorn web.backend:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### 3) Run frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
+# Frontend (in a separate terminal)
+cd app/frontend && npm install && npm run dev
 ```
 
 ### API Contract
@@ -147,7 +146,7 @@ npm run dev
 
 ### Current backend behavior
 
-The web backend now routes runs through lightweight module implementations:
+The backend (`app/backend/`) routes runs through lightweight module implementations:
 
 - `planning/planner.py` for heuristic sub-goal decomposition
 - `execution/subgoal_executor.py` for deterministic action simulation
