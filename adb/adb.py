@@ -33,6 +33,7 @@ Utility:
 import logging
 import os
 import subprocess
+import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -43,7 +44,8 @@ logger = logging.getLogger(__name__)
 
 # Get the directory where adb.py is located
 ADB_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_ADB_PATH = os.path.join(ADB_DIR, "platform-tools", "adb.exe")
+_ADB_BINARY = "adb.exe" if sys.platform == "win32" else "adb"
+DEFAULT_ADB_PATH = os.path.join(ADB_DIR, "platform-tools", _ADB_BINARY)
 DEFAULT_COMMAND_TIMEOUT = 30  # seconds
 DEFAULT_LONG_PRESS_DURATION = 1000  # milliseconds
 
@@ -111,7 +113,7 @@ def run_adb_command(
         # Add command arguments
         full_cmd.extend(cmd_args)
 
-        logger.debug(f"Executing ADB: {' '.join(full_cmd)}")
+        logger.debug("Executing ADB: %s", " ".join(full_cmd))
 
         # Execute command
         result = subprocess.run(
@@ -124,11 +126,11 @@ def run_adb_command(
 
         # Check result
         if result.returncode == 0:
-            logger.debug(f"ADB command succeeded")
+            logger.debug("ADB command succeeded")
             return True, result.stdout.strip()
         else:
             error_msg = result.stderr.strip() or "Command failed"
-            logger.warning(f"ADB command failed: {error_msg}")
+            logger.warning("ADB command failed: %s", error_msg)
             return False, error_msg
 
     except subprocess.TimeoutExpired:
@@ -141,8 +143,8 @@ def run_adb_command(
         logger.error(error_msg)
         return False, error_msg
 
-    except Exception as e:
-        error_msg = f"ADB command error: {str(e)}"
+    except OSError as e:
+        error_msg = f"ADB command error: {e}"
         logger.error(error_msg)
         return False, error_msg
 
@@ -180,7 +182,7 @@ def list_connected_devices(adb_path: str = DEFAULT_ADB_PATH) -> List[str]:
             if device_id:
                 devices.append(device_id)
 
-    logger.debug(f"Found {len(devices)} connected device(s)")
+    logger.debug("Found %d connected device(s)", len(devices))
     return devices
 
 
@@ -202,9 +204,9 @@ def verify_device_connected(
     is_connected = device_id in devices
 
     if is_connected:
-        logger.debug(f"Device {device_id} is connected")
+        logger.debug("Device %s is connected", device_id)
     else:
-        logger.warning(f"Device {device_id} is NOT connected")
+        logger.warning("Device %s is NOT connected", device_id)
 
     return is_connected
 
@@ -243,10 +245,10 @@ def click(
     x, y = target
 
     if not isinstance(x, int) or not isinstance(y, int):
-        logger.error(f"Invalid click coordinates: ({x}, {y})")
+        logger.error("Invalid click coordinates: (%s, %s)", x, y)
         return False
 
-    logger.debug(f"Click action: ({x}, {y})")
+    logger.debug("Click action: (%s, %s)", x, y)
 
     success, _ = run_adb_command(
         ["shell", "input", "tap", str(x), str(y)],
@@ -291,14 +293,14 @@ def long_press(
     x, y = target
 
     if not isinstance(x, int) or not isinstance(y, int):
-        logger.error(f"Invalid long_press coordinates: ({x}, {y})")
+        logger.error("Invalid long_press coordinates: (%s, %s)", x, y)
         return False
 
     if not isinstance(duration, int) or duration <= 0:
-        logger.error(f"Invalid long_press duration: {duration}")
+        logger.error("Invalid long_press duration: %s", duration)
         return False
 
-    logger.debug(f"Long press action: ({x}, {y}) duration={duration}ms")
+    logger.debug("Long press action: (%s, %s) duration=%sms", x, y, duration)
 
     # Use swipe with identical start/end (ADB limitation)
     success, _ = run_adb_command(
@@ -348,11 +350,11 @@ def swipe(
 
     # Validate inputs
     if not isinstance(x, int) or not isinstance(y, int):
-        logger.error(f"Invalid swipe start coordinates: ({x}, {y})")
+        logger.error("Invalid swipe start coordinates: (%s, %s)", x, y)
         return False
 
     if direction not in [SWIPE_UP, SWIPE_DOWN, SWIPE_LEFT, SWIPE_RIGHT]:
-        logger.error(f"Invalid swipe direction: {direction}")
+        logger.error("Invalid swipe direction: %s", direction)
         return False
 
     # Map distance to pixels
@@ -363,7 +365,7 @@ def swipe(
     }
 
     if distance not in distance_map:
-        logger.error(f"Invalid swipe distance: {distance}")
+        logger.error("Invalid swipe distance: %s", distance)
         return False
 
     d = distance_map[distance]
@@ -378,7 +380,7 @@ def swipe(
     else:  # SWIPE_RIGHT
         x2, y2 = x + d, y
 
-    logger.debug(f"Swipe action: ({x}, {y}) → ({x2}, {y2}) ({direction}, {distance})")
+    logger.debug("Swipe action: (%s, %s) -> (%s, %s) (%s, %s)", x, y, x2, y2, direction, distance)
 
     success, _ = run_adb_command(
         ["shell", "input", "swipe", str(x), str(y), str(x2), str(y2)],
@@ -418,14 +420,14 @@ def input_text(
         ```
     """
     if not isinstance(text, str):
-        logger.error(f"Invalid input_text type: {type(text)}")
+        logger.error("Invalid input_text type: %s", type(text))
         return False
 
     # Escape spaces and special characters for ADB
     # ADB requires spaces to be escaped or quoted
     escaped_text = text.replace(" ", "%s")
 
-    logger.debug(f"Input text action: '{text}'")
+    logger.debug("Input text action: '%s'", text)
 
     success, _ = run_adb_command(
         ["shell", "input", "text", escaped_text],
@@ -472,14 +474,14 @@ def drag(
     x2, y2 = end
 
     if not all(isinstance(v, int) for v in [x1, y1, x2, y2]):
-        logger.error(f"Invalid drag coordinates: ({x1}, {y1}) → ({x2}, {y2})")
+        logger.error("Invalid drag coordinates: (%s, %s) -> (%s, %s)", x1, y1, x2, y2)
         return False
 
     if not isinstance(duration, int) or duration <= 0:
-        logger.error(f"Invalid drag duration: {duration}")
+        logger.error("Invalid drag duration: %s", duration)
         return False
 
-    logger.debug(f"Drag action: ({x1}, {y1}) → ({x2}, {y2}) duration={duration}ms")
+    logger.debug("Drag action: (%s, %s) -> (%s, %s) duration=%sms", x1, y1, x2, y2, duration)
 
     success, _ = run_adb_command(
         ["shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)],
@@ -627,10 +629,10 @@ def wait_action(duration: int = 2) -> bool:
         bool: Always returns True (no device command needed)
     """
     if not isinstance(duration, int) or duration < 0:
-        logger.error(f"Invalid wait duration: {duration}")
+        logger.error("Invalid wait duration: %s", duration)
         return False
 
-    logger.debug(f"Wait action: {duration}s")
+    logger.debug("Wait action: %ss", duration)
     time.sleep(duration)
 
     return True
@@ -755,7 +757,7 @@ def execute_action(
     # Validate action
     is_valid, error_msg = validate_action(action)
     if not is_valid:
-        logger.error(f"Invalid action: {error_msg}")
+        logger.error("Invalid action: %s", error_msg)
         return False
 
     action_type = action["action_type"]
@@ -803,9 +805,9 @@ def execute_action(
             return wait_action()
 
         else:
-            logger.error(f"Unknown action type: {action_type}")
+            logger.error("Unknown action type: %s", action_type)
             return False
 
-    except Exception as e:
-        logger.error(f"Error executing action: {str(e)}")
+    except (ValueError, KeyError, TypeError) as e:
+        logger.error("Error executing action: %s", e)
         return False

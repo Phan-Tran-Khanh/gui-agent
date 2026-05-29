@@ -9,8 +9,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class ConfigError(Exception):
     """Exception raised for configuration errors."""
 
-    pass
-
 
 class Config(BaseSettings):
     model_config = SettingsConfigDict(
@@ -58,17 +56,17 @@ class Config(BaseSettings):
         return self
 
     @classmethod
-    def from_args(cls, args) -> "Config":
+    def from_args(cls, *_) -> "Config":
         """Load Config from environment variables (.env file).
 
-        The ``args`` parameter is accepted for call-site compatibility but
+        The ``_args`` parameter is accepted for call-site compatibility but
         is ignored — goals are per-request values and must be passed directly
         to the functions that use them.
         """
         try:
             return cls()
         except ValueError as e:
-            raise ConfigError(f"Configuration validation failed: {e}")
+            raise ConfigError(f"Configuration validation failed: {e}") from e
 
     @classmethod
     def from_file(cls, filepath: str) -> "Config":
@@ -85,22 +83,22 @@ class Config(BaseSettings):
             ConfigError: If file cannot be loaded or parsed
         """
         logger = logging.getLogger("Config")
-        filepath = Path(filepath)
+        path = Path(filepath)
 
-        if not filepath.exists():
-            raise ConfigError(f"Configuration file not found: {filepath}")
+        if not path.exists():
+            raise ConfigError(f"Configuration file not found: {path}")
 
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            logger.info(f"Loaded configuration from {filepath}")
+            logger.info("Loaded configuration from %s", path)
             return cls(**data)
 
         except json.JSONDecodeError as e:
-            raise ConfigError(f"Invalid JSON in configuration file: {e}")
+            raise ConfigError(f"Invalid JSON in configuration file: {e}") from e
         except ValueError as e:
-            raise ConfigError(f"Invalid configuration: {e}")
+            raise ConfigError(f"Invalid configuration: {e}") from e
 
     def to_dict(self) -> dict:
         """
