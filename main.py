@@ -76,7 +76,7 @@ def setup_cli_parser() -> argparse.ArgumentParser:
     
     return parser
 
-def test_assistant_agent(config: Config, logger: logging.Logger) -> None:
+def test_assistant_agent(config: Config, goal: str, logger: logging.Logger) -> None:
     """Test AssistantAgent with a sample screenshot."""
     logger.info("=" * 60)
     logger.info("Testing AssistantAgent")
@@ -105,9 +105,9 @@ def test_assistant_agent(config: Config, logger: logging.Logger) -> None:
             }
             mime_type = mime_types.get(suffix, "image/png")
             
-            logger.info(f"Sending screenshot to AssistantAgent with goal: {config.user_goal}")
+            logger.info(f"Sending screenshot to AssistantAgent with goal: {goal}")
             response = assistant_agent.query(
-                prompt=config.user_goal,
+                prompt=goal,
                 image_bytes=image_bytes,
                 mime_type=mime_type
             )
@@ -117,7 +117,7 @@ def test_assistant_agent(config: Config, logger: logging.Logger) -> None:
         else:
             # Text-only test
             logger.info("No screenshot found, testing text-only query")
-            prompt = f"How would I accomplish this on a mobile device: {config.user_goal}"
+            prompt = f"How would I accomplish this on a mobile device: {goal}"
             response = assistant_agent.query(prompt=prompt)
             
             logger.info("AssistantAgent Response:")
@@ -153,10 +153,10 @@ def test_planner_and_executor(goal: str, device_id: str, logger: logging.Logger)
         logger.info("PHASE 1: Loading Configuration")
         logger.info("-" * 80)
         
-        config = Config.from_args(argparse.Namespace(goal=goal, debug=False))
+        config = Config.from_args(None)
         logger.info(f" Configuration loaded")
         logger.info(f"  Model: {config.model}")
-        logger.info(f"  User Goal: {config.user_goal}")
+        logger.info(f"  User Goal: {goal}")
         
         # ============================================================================
         # PHASE 2: INITIALIZE PLANNER DEPENDENCIES
@@ -198,7 +198,7 @@ def test_planner_and_executor(goal: str, device_id: str, logger: logging.Logger)
         logger.info("-" * 80)
         
         plan = planner.plan(
-            user_goal=config.user_goal,
+            user_goal=goal,
             image_base64=image_base64
         )
         
@@ -311,8 +311,8 @@ def main():
         if args.skip_execution:
             logger.info("Skipping execution phase per --skip-execution flag")
             # Run only the planner phase
-            config = Config.from_args(args)
-            
+            config = Config.from_args(None)
+
             assistant_agent = AssistantAgent(model=config.model, api_key=config.api_key)
             planner_agent = PlannerAgent(assistant_agent)
             context_retriever = ContextRetriever(config)
@@ -331,7 +331,7 @@ def main():
                 with open(image_path, "rb") as f:
                     image_base64 = base64.b64encode(f.read()).decode('utf-8')
             
-            plan = planner.plan(user_goal=config.user_goal, image_base64=image_base64)
+            plan = planner.plan(user_goal=args.goal, image_base64=image_base64)
             return 0
         else:
             # Run the full pipeline test

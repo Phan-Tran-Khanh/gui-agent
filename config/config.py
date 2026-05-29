@@ -28,55 +28,30 @@ class Config(BaseSettings):
         description="LLM model name"
     )
     
-    # === Runtime Settings ===
-    user_goal: str = Field(
-        default="",
-        description="The task/goal for the agent to accomplish"
-    )
-    
     @field_validator("api_key")
     @classmethod
     def validate_api_key(cls, v: Optional[str]) -> str:
-        """Validate that API key is provided."""
         if not v or not str(v).strip():
             raise ValueError("API_KEY is required and cannot be empty")
         return v
-    
+
     @field_validator("model")
     @classmethod
     def validate_model(cls, v: str) -> str:
-        """Validate that model is provided."""
         if not v or not str(v).strip():
             raise ValueError("MODEL is required and cannot be empty")
         return v
-    
-    @field_validator("user_goal")
-    @classmethod
-    def validate_user_goal(cls, v: str) -> str:
-        """Validate that user goal is provided at runtime."""
-        if not v or not str(v).strip():
-            raise ValueError("user_goal (--goal) is required and cannot be empty")
-        return v
-    
+
     @classmethod
     def from_args(cls, args) -> "Config":
-        """
-        Create Config from argparse Namespace and environment variables.
-        
-        Pydantic automatically loads API_KEY and MODEL from .env file.
-        This method only needs to set the user_goal from CLI args.
-        
-        Args:
-            args: Parsed command-line arguments
-            
-        Returns:
-            Config instance
+        """Load Config from environment variables (.env file).
+
+        The ``args`` parameter is accepted for call-site compatibility but
+        is ignored — goals are per-request values and must be passed directly
+        to the functions that use them.
         """
         try:
-            data = {
-                "user_goal": getattr(args, "goal", "open github, repository gui-agent")
-            }
-            return cls(**data)
+            return cls()
         except ValueError as e:
             raise ConfigError(f"Configuration validation failed: {e}")
     
