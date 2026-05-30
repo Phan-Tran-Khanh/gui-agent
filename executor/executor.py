@@ -72,7 +72,6 @@ Error handling::
     # MllmOutputError and ADB failures are caught internally and return False.
 """
 
-import io
 import logging
 
 import litellm
@@ -245,14 +244,10 @@ def execute(action_text: str, image: Image.Image, device_id: str) -> bool:
     """
     _logger.info("Executing: %.120s", action_text)
 
-    buf = io.BytesIO()
-    image.save(buf, format="PNG")
-    image_bytes = buf.getvalue()
-
     mllm = _ExecutorMllm()
 
     try:
-        output = mllm.complete(user_message=action_text, image_bytes=image_bytes)
+        output = mllm.complete(user_message=action_text, image=image)
     except MllmOutputError as e:
         _logger.error("MLLM output invalid: %s", e)
         return False

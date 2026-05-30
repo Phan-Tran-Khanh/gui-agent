@@ -3,12 +3,14 @@ Base MLLM class with structured Pydantic output validation.
 """
 
 import base64
+import io
 import json
 import logging
 import re
 from typing import Generic, Optional, Type, TypeVar
 
 import litellm
+from PIL import Image
 from pydantic import BaseModel, ValidationError
 
 from config.config import Config
@@ -127,11 +129,10 @@ class BaseMllm(Generic[T]):
     def complete(
         self,
         user_message: str = "",
-        image_bytes: Optional[bytes] = None,
-        mime_type: str = "image/png",
+        image: Optional[Image.Image] = None,
     ) -> T:
         """Call the MLLM and return a validated instance of ``output_class``."""
-        messages = self._build_messages(user_message, image_bytes, mime_type)
+        messages = self._build_messages(user_message, image)
         raw = self._call_litellm(messages)
         return self._parse_and_validate(raw)
 
@@ -142,18 +143,19 @@ class BaseMllm(Generic[T]):
     def _build_messages(
         self,
         user_message: str,
-        image_bytes: Optional[bytes],
-        mime_type: str,
+        image: Optional[Image.Image],
     ) -> list:
         content: list = []
         if user_message:
             content.append({"type": "text", "text": user_message})
-        if image_bytes:
-            b64 = base64.b64encode(image_bytes).decode("utf-8")
+        if image is not None:
+            buf = io.BytesIO()
+            image.save(buf, format="PNG")
+            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
             content.append(
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:{mime_type};base64,{b64}"},
+                    "image_url": {"url": f"data:image/png;base64,{b64}"},
                 }
             )
         if not content:
