@@ -29,7 +29,6 @@ _MOCK_PNG = base64.b64decode(
 
 from adb import adb
 from config import Config
-from execution.executor import Executor
 from mllm import AssistantAgent, Plan, PlannerAgent
 from planning.constraint_retriever import ConstraintRetriever
 from planning.context_retriever import ContextRetriever
@@ -130,9 +129,6 @@ class SequentialExecutor:
             constraint_retriever=self.constraint_retriever,
             logger=logger,
         )
-
-        # Initialize executor
-        self.executor = Executor(device_id=device_id, logger=logger)
 
         # Initialize goal completion checker
         self.goal_checker = GoalCompletionChecker(
