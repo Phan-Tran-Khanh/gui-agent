@@ -12,8 +12,7 @@ Reference: https://arxiv.org/abs/2312.13108
 
 import logging
 from typing import List, Dict, Any, Optional
-from mllm.planner_agent import PlannerAgent, Plan, Milestone, SubTask
-from mllm.enums import ExecutionStatus
+from mllm import ExecutionStatus, Milestone, Plan, PlannerAgent, SubTask
 from planning.context_retriever import ContextRetriever
 from planning.constraint_retriever import ConstraintRetriever
 

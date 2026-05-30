@@ -14,7 +14,7 @@ import base64
 import logging
 from typing import Optional, Dict, Any, List
 
-from mllm.assistant_agent import AssistantAgent
+from mllm import AssistantAgent
 
 
 class GoalCompletionChecker:

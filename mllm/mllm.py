@@ -91,7 +91,7 @@ class BaseMllm(Generic[T]):
 
     4. Handle errors at the call site::
 
-        from mllm.mllm import MllmOutputError
+        from mllm import MllmOutputError
         import litellm
 
         try:

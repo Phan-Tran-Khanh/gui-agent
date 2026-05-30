@@ -30,8 +30,7 @@ _MOCK_PNG = base64.b64decode(
 from adb import adb
 from config import Config
 from execution.executor import Executor
-from mllm.assistant_agent import AssistantAgent
-from mllm.planner_agent import PlannerAgent, Plan
+from mllm import AssistantAgent, Plan, PlannerAgent
 from planning.constraint_retriever import ConstraintRetriever
 from planning.context_retriever import ContextRetriever
 from planning.planner import Planner
@@ -708,8 +707,7 @@ For each action you plan:
         return False, "Mock: proceeding with planning and action"
 
     def _mock_plan(self) -> "Plan":
-        from mllm.planner_agent import Plan, Milestone, SubTask
-        from mllm.enums import ActionType
+        from mllm import ActionType, Milestone, Plan, SubTask
         self.logger.info("[MOCK] Returning synthetic plan")
         return Plan(
             milestones=[

@@ -58,7 +58,7 @@ Action examples and what the MLLM is expected to produce
 Error handling::
 
     from executor import execute
-    from mllm.mllm import MllmOutputError
+    from mllm import MllmOutputError
     import litellm
 
     try:
@@ -79,7 +79,7 @@ from PIL import Image
 
 from adb import adb
 from executor.skills import ActionOutput, PhoneAction, get_skills_prompt
-from mllm.mllm import BaseMllm, MllmOutputError
+from mllm import BaseMllm, MllmOutputError
 
 _logger = logging.getLogger(__name__)
 

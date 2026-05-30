@@ -13,8 +13,7 @@ from pathlib import Path
 import base64
 
 from config import Config, ConfigError
-from mllm.assistant_agent import AssistantAgent
-from mllm.planner_agent import PlannerAgent
+from mllm import AssistantAgent, PlannerAgent
 from planning.planner import Planner
 from planning.context_retriever import ContextRetriever
 from planning.constraint_retriever import ConstraintRetriever
