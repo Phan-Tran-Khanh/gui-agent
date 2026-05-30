@@ -110,8 +110,8 @@ def _call_omniparser_sync(
         try:
             req = request.Request(url=url, data=body, method="POST")
             req.add_header("Content-Type", content_type)
-            with request.urlopen(req, timeout=timeout_sec) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                # utf-8-sig strips the BOM if the server includes one
+                return json.loads(resp.read().decode("utf-8-sig"))
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="ignore") if exc.fp else str(exc)
             last_error = exc
@@ -160,18 +160,22 @@ async def _fetch_omniparser(image: Image.Image, config: Config) -> OmniParserRes
         config.parse_api_retry_backoff_ms,
     )
 
-    latency_ms = (time.perf_counter() - started) * 1000
+    # Prefer the server's own latency value (seconds → ms); fall back to
+    # local perf_counter measurement if the field is absent.
+    server_latency = payload.get("latency")
+    latency_ms = (
+        float(server_latency) * 1000
+        if server_latency is not None
+        else (time.perf_counter() - started) * 1000
+    )
 
     raw_elements: List[Dict[str, Any]] = payload.get("parsed_content_list", [])
     elements = [_parse_raw_element(elem, idx) for idx, elem in enumerate(raw_elements)]
     interactable = [e for e in elements if e.interactivity]
 
-    # Prefer OmniParser's own screen_info; compile locally if absent
-    screen_info = (
-        str(payload["screen_info"])
-        if payload.get("screen_info")
-        else _compile_screen_info(interactable)
-    )
+    # Always compile from interactable-only elements — OmniParser's own
+    # screen_info includes non-interactable elements which pollute the MLLM prompt.
+    screen_info = _compile_screen_info(interactable)
 
     return OmniParserResult(
         elements=elements,
