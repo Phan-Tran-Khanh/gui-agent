@@ -22,7 +22,7 @@ from .sequential_executor import SequentialExecutor
 from .sequential_runner import SequentialRunner
 
 from .task_manager import TaskManager
-from config.config import Config
+from config import Config
 
 # Setup logger
 logging.basicConfig(

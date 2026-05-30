@@ -13,7 +13,7 @@ import litellm
 from PIL import Image
 from pydantic import BaseModel, ValidationError
 
-from config.config import Config
+from config import Config
 
 T = TypeVar("T", bound=BaseModel)
 

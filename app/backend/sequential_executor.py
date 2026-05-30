@@ -28,7 +28,7 @@ _MOCK_PNG = base64.b64decode(
 )
 
 from adb import adb
-from config.config import Config
+from config import Config
 from execution.executor import Executor
 from mllm.assistant_agent import AssistantAgent
 from mllm.planner_agent import PlannerAgent, Plan

@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 import base64
 
-from config.config import Config, ConfigError
+from config import Config, ConfigError
 from mllm.assistant_agent import AssistantAgent
 from mllm.planner_agent import PlannerAgent
 from planning.planner import Planner
