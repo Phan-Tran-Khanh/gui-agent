@@ -33,7 +33,7 @@ from mllm import AssistantAgent, Plan, PlannerAgent
 from planning.constraint_retriever import ConstraintRetriever
 from planning.context_retriever import ContextRetriever
 from planning.planner import Planner
-from utils.box_annotator import draw_parsed_elements
+from grounder.annotator import draw_parsed_elements
 from .omniparser_client import OmniParserClient, OmniParserClientError, ParseScreenResult
 from .goal_completion_checker import GoalCompletionChecker
 
