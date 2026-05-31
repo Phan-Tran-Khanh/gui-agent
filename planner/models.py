@@ -10,8 +10,10 @@ immediate next human-readable action, along with completion status and an
 optional redo signal when a previous action led to an unworkable state.
 """
 
-from typing import Optional
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
+from PIL import Image
 from pydantic import BaseModel, Field
 
 
@@ -123,3 +125,51 @@ class AchieverOutput(BaseModel):
             "Null when the current execution path remains valid."
         ),
     )
+
+
+class GridSelection(BaseModel):
+    """
+    MLLM output for the Proposer — grid cells selected as relevant to the blocked action.
+
+    The Proposer overlays a numbered grid on the screenshot and asks the MLLM
+    which cells contain UI elements that offer the clearest path to resolving
+    the action. This model constrains that response to a validated list of indices.
+
+    Indices are zero-based and row-major (left-to-right, top-to-bottom),
+    so cell 0 is the top-left tile of the grid.
+    """
+
+    selected_indices: List[int] = Field(
+        description=(
+            "Zero-based indices of the grid cells (row-major, left-to-right "
+            "then top-to-bottom) whose content — buttons, icons, text fields, "
+            "menus — offers the clearest path toward performing the action. "
+            "Select the minimal cluster that covers the entire relevant region."
+        )
+    )
+
+
+@dataclass
+class ProposerOutput:
+    """
+    Result of the Proposer — the cropped region most likely to resolve a blocked action.
+
+    Fields
+    ------
+    square_indices
+        Zero-based (row-major) grid-cell indices the MLLM selected as relevant.
+
+    proposed_image
+        PIL Image cropped from the original screenshot to the bounding box of
+        all selected cells. Ready to pass back into the executor or achiever
+        as a focused visual context.
+
+    center_point
+        (x, y) centre of the proposed area in the original image's coordinate
+        space. Suitable for use as a point-of-interest in ADB actions or
+        visual-change detection.
+    """
+
+    square_indices: List[int]
+    proposed_image: Image.Image
+    center_point: Tuple[int, int]
