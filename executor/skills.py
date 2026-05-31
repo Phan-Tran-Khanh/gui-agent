@@ -5,9 +5,13 @@ Defines all actions the MLLM executor can choose from (PhoneAction) and the
 ActionOutput Pydantic class that constrains MLLM output so it maps directly to
 executable ADB commands.
 
-get_skills_prompt() returns the formatted description injected into every
-executor system prompt so the MLLM knows each action's purpose and required
-parameters.
+Element-based actions (TAP, LONG_PRESS, INPUT) use element_id — the numeric
+ID shown on the annotated screenshot and listed in screen_info — instead of
+raw pixel coordinates. The executor resolves the ID to actual screen
+coordinates using the OmniParser element list.
+
+get_skills_prompt() returns the formatted action description injected into
+every executor system prompt.
 """
 
 from enum import Enum
@@ -35,27 +39,32 @@ class ActionOutput(BaseModel):
     """
     Structured output produced by the executor MLLM.
 
-    Each field maps directly to an ADB call:
-
-    - action_type  selects which ADB function to invoke.
-    - value        carries a text payload (see per-action notes below).
-    - position     carries screen coordinates (see per-action notes below).
+    Element-based actions identify the target by its ID in screen_info rather
+    than by raw pixel coordinates, making decisions robust to screen resolution.
 
     Per-action constraints
     ----------------------
-    TAP          position=[x, y]                   value=null
-    INPUT        position=[x, y]   value=<text>
-    SWIPE        position=[[x1,y1],[x2,y2]]         value=null
-    LONG_PRESS   position=[x, y]                   value=null
-    ENTER        position=null                     value=null
-    NAVIGATE_BACK  position=null                   value=null
-    NAVIGATE_HOME  position=null                   value=null
-    OPEN_APP     position=null     value=<app name>
-    WAIT         position=null                     value=null
-    ANSWER       position=null     value=<status message>
+    TAP          element_id=<id>                   value=null   position=null
+    INPUT        element_id=<id>   value=<text>                 position=null
+    LONG_PRESS   element_id=<id>                   value=null   position=null
+    SWIPE        element_id=null   value=null   position=[[x1,y1],[x2,y2]]
+    ENTER        element_id=null   value=null   position=null
+    NAVIGATE_BACK  element_id=null  value=null  position=null
+    NAVIGATE_HOME  element_id=null  value=null  position=null
+    OPEN_APP     element_id=null   value=<package name>         position=null
+    WAIT         element_id=null   value=null   position=null
+    ANSWER       element_id=null   value=<status message>       position=null
     """
 
     action_type: PhoneAction = Field(description="The action to perform on the device.")
+    element_id: Optional[int] = Field(
+        default=None,
+        description=(
+            "ID of the interactable element to act on, as shown in screen_info "
+            "and on the annotated screenshot. Required for TAP, INPUT, LONG_PRESS. "
+            "Null for all other actions."
+        ),
+    )
     value: Optional[str] = Field(
         default=None,
         description=(
@@ -66,34 +75,29 @@ class ActionOutput(BaseModel):
     position: Optional[List] = Field(
         default=None,
         description=(
-            "[x, y] pixel coordinates for TAP, INPUT, LONG_PRESS. "
-            "[[x1, y1], [x2, y2]] start and end coordinates for SWIPE. "
-            "Null for ENTER, NAVIGATE_BACK, NAVIGATE_HOME, OPEN_APP, WAIT, ANSWER."
+            "[[x1, y1], [x2, y2]] normalised screen coordinates. "
+            "Only used for SWIPE. Null for all other actions."
         ),
     )
 
 
 _SKILL_LINES = (
-    "1.  INPUT         — Type text into a focused element.\n"
-    "                    value: string to type  |  position: [x, y] of target element\n"
-    "2.  SWIPE         — Swipe across the screen.\n"
-    "                    value: null  |  position: [[x1, y1], [x2, y2]] start → end\n"
-    "3.  TAP           — Tap on an element.\n"
-    "                    value: null  |  position: [x, y]\n"
+    "1.  INPUT         — Type text into an element identified by its ID.\n"
+    "                    element_id: ID from screen_info  |  value: text to type\n"
+    "2.  SWIPE         — Swipe the screen between two coordinates.\n"
+    "                    position: [[x1, y1], [x2, y2]] normalised 0-1\n"
+    "3.  TAP           — Tap on an element identified by its ID.\n"
+    "                    element_id: ID from screen_info\n"
     "4.  ANSWER        — Mark the task as complete.\n"
-    "                    value: status message (e.g. 'task complete')  |  position: null\n"
-    "5.  ENTER         — Press the Enter / confirm key.\n"
-    "                    value: null  |  position: null\n"
-    "6.  LONG_PRESS    — Long-press an element.\n"
-    "                    value: null  |  position: [x, y]\n"
-    "7.  NAVIGATE_BACK — Press the device back button.\n"
-    "                    value: null  |  position: null\n"
-    "8.  NAVIGATE_HOME — Go to the device home screen.\n"
-    "                    value: null  |  position: null\n"
+    "                    value: status message (e.g. 'task complete')\n"
+    "5.  ENTER         — Press the Enter / confirm key. No parameters.\n"
+    "6.  LONG_PRESS    — Long-press an element identified by its ID.\n"
+    "                    element_id: ID from screen_info\n"
+    "7.  NAVIGATE_BACK — Press the device back button. No parameters.\n"
+    "8.  NAVIGATE_HOME — Go to the device home screen. No parameters.\n"
     "9.  OPEN_APP      — Launch an application by its Android package name.\n"
-    "                    value: package name (e.g. com.android.settings)  |  position: null\n"
-    "10. WAIT          — Wait for the UI to settle.\n"
-    "                    value: null  |  position: null"
+    "                    value: package name (e.g. com.android.settings)\n"
+    "10. WAIT          — Wait for the UI to settle. No parameters."
 )
 
 
