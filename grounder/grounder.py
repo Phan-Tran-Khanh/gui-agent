@@ -230,24 +230,25 @@ def _mock_result(image: Image.Image) -> OmniParserResult:
 # Step 4: Public API
 # ---------------------------------------------------------------------------
 
-async def ground(image: Image.Image) -> Tuple[Image.Image, str]:
+async def ground(image: Image.Image) -> Tuple[Image.Image, str, List[ParsedElement]]:
     """
     Ground a screenshot using OmniParser.
 
     Calls OmniParser, filters interactable UI elements, annotates the image
-    with numbered bounding boxes (Step 3), and returns the enhanced image
-    together with a set-of-mark prompt for MLLM injection (Step 2).
+    with numbered bounding boxes (Step 3), and returns the enhanced image,
+    set-of-mark prompt, and the interactable element list.
 
     Args:
         image: Current device screenshot as a PIL Image.
 
     Returns:
         Tuple of:
-        - enhanced_image: PIL Image with coloured bboxes and ID badges drawn
-                          on every interactable element.
-        - prompt: Set-of-mark text string, e.g.:
-                  "ID: 0, Text: Settings
-                   ID: 1, Icon: home"
+        - enhanced_image:  PIL Image with coloured bboxes and ID badges drawn
+                           on every interactable element.
+        - screen_info:     Set-of-mark text for MLLM injection, e.g.
+                           "ID: 0, Text: Settings\nID: 1, Icon: home"
+        - interactable:    List[ParsedElement] — interactable elements needed
+                           by the executor to resolve element_id → pixel coords.
     """
     config = Config()
 
@@ -265,4 +266,4 @@ async def ground(image: Image.Image) -> Tuple[Image.Image, str]:
     # Step 3: annotate
     enhanced = annotate(image, result.interactable)
 
-    return enhanced, result.screen_info
+    return enhanced, result.screen_info, result.interactable

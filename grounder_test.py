@@ -83,9 +83,9 @@ def _pick_image(arg: str | None) -> Path:
     return images[0]
 
 
-def _validate(result: Tuple[Image.Image, str]) -> None:
-    """Assert the return type matches ground() -> Tuple[Image.Image, str]."""
-    enhanced, screen_info = result
+def _validate(result: Tuple[Image.Image, str, list]) -> None:
+    """Assert the return type matches ground() -> Tuple[Image.Image, str, List[ParsedElement]]."""
+    enhanced, screen_info, elements = result
 
     assert isinstance(enhanced, Image.Image), (
         f"Expected PIL.Image.Image, got {type(enhanced)}"
@@ -94,11 +94,13 @@ def _validate(result: Tuple[Image.Image, str]) -> None:
         f"Expected str for screen_info, got {type(screen_info)}"
     )
     assert enhanced.size[0] > 0 and enhanced.size[1] > 0, "Annotated image has zero size"
+    assert isinstance(elements, list), f"Expected list for elements, got {type(elements)}"
 
     print("Validation passed:")
-    print(f"  enhanced  : PIL.Image.Image  {enhanced.size[0]}x{enhanced.size[1]} px")
-    print(f"  screen_info: str  ({len(screen_info)} chars, "
+    print(f"  enhanced    : PIL.Image.Image  {enhanced.size[0]}x{enhanced.size[1]} px")
+    print(f"  screen_info : str  ({len(screen_info)} chars, "
           f"{len(screen_info.splitlines())} lines)")
+    print(f"  interactable: list[ParsedElement]  ({len(elements)} elements)")
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +135,7 @@ async def run(image_path: Path) -> None:
         print(f"ERROR: Configuration problem — {exc}")
         sys.exit(1)
 
-    enhanced, screen_info = result
+    enhanced, screen_info, _elements = result
     _validate(result)
 
     print()
