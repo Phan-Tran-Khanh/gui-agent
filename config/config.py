@@ -45,6 +45,10 @@ class Config(BaseSettings):
         default=False,
         description="Return synthetic data for all external connections (OmniParser, ADB, LLM)",
     )
+    vision_masking_enabled: bool = Field(
+        default=False,
+        description="Enable context-aware image masking (LessIsMore) before sending screenshots to the MLLM",
+    )
 
     @field_validator("model")
     @classmethod
