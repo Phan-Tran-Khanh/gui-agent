@@ -612,6 +612,54 @@ def navigate_recent(
     return success
 
 
+def capture_screenshot(
+    device_id: str,
+    local_path: str = "output/screenshot.png",
+    adb_path: str = DEFAULT_ADB_PATH,
+) -> Optional[bytes]:
+    """
+    Capture a screenshot from the device and return its PNG bytes.
+
+    Executes ``screencap`` on the device, pulls the file to *local_path*,
+    reads it, and returns the raw bytes.  Returns None on any failure.
+
+    Args:
+        device_id:  Target device ID or emulator serial.
+        local_path: Local file path where the screenshot is saved.
+        adb_path:   Path to the adb executable.
+
+    Returns:
+        PNG bytes of the screenshot, or None if capture failed.
+    """
+    import os  # noqa: PLC0415  (local import to avoid polluting module top)
+
+    device_path = "/sdcard/gui_agent_screenshot.png"
+    os.makedirs(os.path.dirname(local_path) or ".", exist_ok=True)
+
+    ok, out = run_adb_command(
+        ["shell", "screencap", "-p", device_path],
+        device_id=device_id, adb_path=adb_path,
+    )
+    if not ok:
+        logger.error("screencap failed: %s", out)
+        return None
+
+    ok, out = run_adb_command(
+        ["pull", device_path, local_path],
+        device_id=device_id, adb_path=adb_path, timeout=60,
+    )
+    if not ok:
+        logger.error("adb pull failed: %s", out)
+        return None
+
+    try:
+        with open(local_path, "rb") as f:
+            return f.read()
+    except OSError as exc:
+        logger.error("Failed to read screenshot file: %s", exc)
+        return None
+
+
 def wait_action(duration: int = 2) -> bool:
     """
     Execute wait action (pause execution).
