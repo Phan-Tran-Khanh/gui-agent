@@ -53,6 +53,10 @@ class Config(BaseSettings):
         default=True,
         description="Enable YDiff visual change detection to verify whether an action had effect on the UI",
     )
+    vision_cropping_enabled: bool = Field(
+        default=False,
+        description="Enable RegionFocus crop-and-upsample to zoom into candidate regions before grounding",
+    )
 
     @field_validator("model")
     @classmethod
