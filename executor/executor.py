@@ -46,7 +46,7 @@ Action examples and what the MLLM is expected to produce
         → ActionOutput(action_type=LONG_PRESS, element_id=12)
 
     "scroll down to see more results"
-        → ActionOutput(action_type=SWIPE, position=[[0.5, 0.8], [0.5, 0.2]])
+        → ActionOutput(action_type=SWIPE, direction="down", distance="medium")
 
     "open the Settings app"
         → ActionOutput(action_type=OPEN_APP, value="com.android.settings")
@@ -92,27 +92,23 @@ _logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = (
-    "You are a mobile GUI automation agent.\n\n"
-    "You receive:\n"
-    "  1. An annotated screenshot with numbered bounding boxes on every "
-    "interactable UI element.\n"
-    "  2. A screen_info list naming each element by its ID.\n"
-    "  3. A natural language action instruction.\n\n"
-    "Your task: select the correct action and identify the target element "
-    "by its ID (for TAP, INPUT, LONG_PRESS) or provide the required parameters "
-    "(value for INPUT/OPEN_APP/ANSWER, position for SWIPE).\n\n"
+    "You are a precise mobile GUI automation agent.\n\n"
+    "Every turn you receive an annotated screenshot with numbered bounding boxes "
+    "marking each interactable element, a screen_info list that names every element "
+    "by its ID, and a plain-English action instruction.\n\n"
+    "Your sole responsibility is to translate that instruction into exactly one "
+    "structured action with the correct parameters.\n\n"
     "Available actions:\n" + get_skills_prompt() + "\n\n"
-    "Rules:\n"
-    "- Select exactly one action_type.\n"
-    "- For TAP, INPUT, LONG_PRESS: set element_id to the ID shown on the "
-    "annotated screenshot / listed in screen_info. Do NOT set position.\n"
-    "- For SWIPE: set position as [[x1, y1], [x2, y2]] in normalised 0-1 "
-    "coordinates. Do NOT set element_id.\n"
-    "- For INPUT: also set value to the text to type.\n"
-    "- For OPEN_APP: set value to the Android package name "
-    "(e.g. com.android.settings).\n"
-    "- For ANSWER: set value to a short completion status message.\n"
-    "- Set all unused fields to null."
+    "How to fill each field:\n"
+    "- action_type: always pick the single most appropriate action from the list.\n"
+    "- element_id: for TAP, INPUT, and LONG_PRESS, identify the target element "
+    "by reading its ID from the annotated screenshot or screen_info, then set "
+    "element_id to that integer.\n"
+    "- direction + distance: for SWIPE, set direction to one of "
+    "'up', 'down', 'left', 'right' and distance to 'short', 'medium', or 'long'.\n"
+    "- value: supply the text to type for INPUT, the Android package name for "
+    "OPEN_APP (e.g. com.android.settings), or a brief completion message for ANSWER.\n"
+    "- Leave every field that the chosen action does not require as null."
 )
 
 
@@ -215,15 +211,57 @@ def _do_long_press(
     return adb.long_press(coords, device_id)
 
 
-_SWIPE_DURATION_MS = 150  # fast gesture, not a slow drag
+_VALID_DIRECTIONS = {"up", "down", "left", "right"}
+
+# Fraction of screen dimension swept per distance category.
+# Both start and end are placed symmetrically around the centre, so the
+# gesture always stays within bounds regardless of screen size.
+_SWIPE_FRACTION = {"short": 0.20, "medium": 0.40, "long": 0.60}
+_SWIPE_DURATION_MS = 200  # ms — smooth enough for both scroll and fling
 
 
-def _do_swipe(pos: list, img_width: int, img_height: int, device_id: str) -> bool:
-    if len(pos) < 2:
-        _logger.error("SWIPE requires [[x1,y1],[x2,y2]], got: %s", pos)
+def _do_swipe(
+    direction: Optional[str],
+    distance: Optional[str],
+    img_width: int,
+    img_height: int,
+    device_id: str,
+) -> bool:
+    if direction not in _VALID_DIRECTIONS:
+        _logger.error("SWIPE direction must be one of %s, got: %s", _VALID_DIRECTIONS, direction)
         return False
-    start = (int(pos[0][0] * img_width), int(pos[0][1] * img_height))
-    end = (int(pos[1][0] * img_width), int(pos[1][1] * img_height))
+
+    # Convert the distance category to a fraction of the relevant screen
+    # dimension (height for vertical swipes, width for horizontal).
+    fraction = _SWIPE_FRACTION.get(distance or "medium", 0.40)
+
+    # Anchor at the screen centre so the gesture is always reachable and
+    # naturally positioned regardless of screen resolution.
+    cx, cy = img_width // 2, img_height // 2
+
+    # Place start and end symmetrically around the centre: each point is
+    # half the total travel distance away, guaranteeing both stay on-screen.
+    if direction == "up":
+        # Finger moves upward → start below centre, end above.
+        dy = int(img_height * fraction / 2)
+        start, end = (cx, cy + dy), (cx, cy - dy)
+    elif direction == "down":
+        # Finger moves downward → start above centre, end below.
+        dy = int(img_height * fraction / 2)
+        start, end = (cx, cy - dy), (cx, cy + dy)
+    elif direction == "left":
+        # Finger moves leftward → start right of centre, end left.
+        dx = int(img_width * fraction / 2)
+        start, end = (cx + dx, cy), (cx - dx, cy)
+    else:  # right
+        # Finger moves rightward → start left of centre, end right.
+        dx = int(img_width * fraction / 2)
+        start, end = (cx - dx, cy), (cx + dx, cy)
+
+    _logger.debug(
+        "SWIPE %s/%s  %s -> %s  (screen %dx%d)",
+        direction, distance, start, end, img_width, img_height,
+    )
     return adb.drag(start, end, device_id, duration=_SWIPE_DURATION_MS)
 
 
@@ -258,7 +296,6 @@ def _map_to_adb(
 ) -> bool:
     """Route an ActionOutput to the corresponding ADB call."""
     action = output.action_type
-    pos = output.position or []
     value = output.value or ""
 
     if action == PhoneAction.TAP:
@@ -275,7 +312,7 @@ def _map_to_adb(
         )
 
     if action == PhoneAction.SWIPE:
-        return _do_swipe(pos, img_width, img_height, device_id)
+        return _do_swipe(output.direction, output.distance, img_width, img_height, device_id)
 
     if action == PhoneAction.ENTER:
         return adb.press_enter(device_id)
@@ -317,7 +354,7 @@ def execute(
 
     Composes the set-of-mark screen_info into the MLLM user message alongside
     the annotated screenshot, receives a structured ActionOutput with an
-    element_id (for element-based actions) or position (for SWIPE), resolves
+    element_id (for element-based actions) or direction/distance (for SWIPE), resolves
     element_id to pixel coordinates via the OmniParser element list, then
     dispatches the ADB command.
 
@@ -357,11 +394,12 @@ def execute(
         return False
 
     _logger.info(
-        "Action decided — type: %s  element_id: %s  value: %s  position: %s",
+        "Action decided — type: %s  element_id: %s  value: %s  direction: %s  distance: %s",
         output.action_type,
         output.element_id,
         output.value,
-        output.position,
+        output.direction,
+        output.distance,
     )
 
     return _map_to_adb(output, elements, image.width, image.height, device_id)

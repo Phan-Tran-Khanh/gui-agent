@@ -15,7 +15,7 @@ every executor system prompt.
 """
 
 from enum import Enum
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -61,22 +61,25 @@ class ActionOutput(BaseModel):
         default=None,
         description=(
             "ID of the interactable element to act on, as shown in screen_info "
-            "and on the annotated screenshot. Required for TAP, INPUT, LONG_PRESS. "
-            "Null for all other actions."
+            "and on the annotated screenshot. Required for TAP, INPUT, LONG_PRESS."
         ),
     )
     value: Optional[str] = Field(
         default=None,
         description=(
             "Text payload: string to type (INPUT), Android package name (OPEN_APP), "
-            "or completion status (ANSWER). Null for all other actions."
+            "or completion status (ANSWER)."
         ),
     )
-    position: Optional[List] = Field(
+    direction: Optional[str] = Field(
         default=None,
+        description="Swipe direction for SWIPE: one of 'up', 'down', 'left', 'right'.",
+    )
+    distance: Optional[str] = Field(
+        default="medium",
         description=(
-            "[[x1, y1], [x2, y2]] normalised screen coordinates. "
-            "Only used for SWIPE. Null for all other actions."
+            "Swipe distance for SWIPE: 'short', 'medium', or 'long'. "
+            "Defaults to 'medium' when omitted."
         ),
     )
 
@@ -84,8 +87,9 @@ class ActionOutput(BaseModel):
 _SKILL_LINES = (
     "1.  INPUT         — Type text into an element identified by its ID.\n"
     "                    element_id: ID from screen_info  |  value: text to type\n"
-    "2.  SWIPE         — Swipe the screen between two coordinates.\n"
-    "                    position: [[x1, y1], [x2, y2]] normalised 0-1\n"
+    "2.  SWIPE         — Swipe the screen in a direction.\n"
+    "                    direction: 'up'|'down'|'left'|'right'\n"
+    "                    distance:  'short'|'medium'|'long'  (default: medium)\n"
     "3.  TAP           — Tap on an element identified by its ID.\n"
     "                    element_id: ID from screen_info\n"
     "4.  ANSWER        — Mark the task as complete.\n"
