@@ -81,6 +81,7 @@ import litellm
 from PIL import Image
 
 from adb import adb
+from config import Config
 from executor.skills import ActionOutput, PhoneAction, get_skills_prompt
 from grounder.models import ParsedElement
 from mllm import BaseMllm, MllmOutputError
@@ -228,7 +229,9 @@ def _do_swipe(
     device_id: str,
 ) -> bool:
     if direction not in _VALID_DIRECTIONS:
-        _logger.error("SWIPE direction must be one of %s, got: %s", _VALID_DIRECTIONS, direction)
+        _logger.error(
+            "SWIPE direction must be one of %s, got: %s", _VALID_DIRECTIONS, direction
+        )
         return False
 
     # Convert the distance category to a fraction of the relevant screen
@@ -260,7 +263,12 @@ def _do_swipe(
 
     _logger.debug(
         "SWIPE %s/%s  %s -> %s  (screen %dx%d)",
-        direction, distance, start, end, img_width, img_height,
+        direction,
+        distance,
+        start,
+        end,
+        img_width,
+        img_height,
     )
     return adb.drag(start, end, device_id, duration=_SWIPE_DURATION_MS)
 
@@ -312,7 +320,9 @@ def _map_to_adb(
         )
 
     if action == PhoneAction.SWIPE:
-        return _do_swipe(output.direction, output.distance, img_width, img_height, device_id)
+        return _do_swipe(
+            output.direction, output.distance, img_width, img_height, device_id
+        )
 
     if action == PhoneAction.ENTER:
         return adb.press_enter(device_id)
@@ -372,26 +382,37 @@ def execute(
     """
     _logger.info("Executing: %.120s", action_text)
 
-    # Composite screen_info and action into the user message so the MLLM
-    # sees both the element list and the instruction in one turn.
-    user_message = (
-        "Interactable elements detected on screen (idx-based):\n"
-        f"{screen_info}\n\n"
-        "Each line is formatted as: ID: <idx>, <Type>: <content>\n"
-        "Use the idx as element_id when the action targets a specific element.\n\n"
-        f"Action to perform:\n{action_text}"
-    )
+    if Config().mock_mode:
+        # In mock mode skip the MLLM call. Tap the first available element so
+        # the full _map_to_adb → ADB path is still exercised end-to-end.
+        first = elements[0] if elements else None
+        output = (
+            ActionOutput(action_type=PhoneAction.TAP, element_id=first.idx)
+            if first
+            else ActionOutput(action_type=PhoneAction.WAIT)
+        )
+        _logger.info("[MOCK] Synthetic action: %s", output)
+    else:
+        # Composite screen_info and action into the user message so the MLLM
+        # sees both the element list and the instruction in one turn.
+        user_message = (
+            "Interactable elements detected on screen (idx-based):\n"
+            f"{screen_info}\n\n"
+            "Each line is formatted as: ID: <idx>, <Type>: <content>\n"
+            "Use the idx as element_id when the action targets a specific element.\n\n"
+            f"Action to perform:\n{action_text}"
+        )
 
-    mllm = _ExecutorMllm()
+        mllm = _ExecutorMllm()
 
-    try:
-        output = mllm.complete(user_message=user_message, image=image)
-    except MllmOutputError as e:
-        _logger.error("MLLM output invalid: %s", e)
-        return False
-    except litellm.APIError as e:
-        _logger.error("MLLM API error: %s", e)
-        return False
+        try:
+            output = mllm.complete(user_message=user_message, image=image)
+        except MllmOutputError as e:
+            _logger.error("MLLM output invalid: %s", e)
+            return False
+        except litellm.APIError as e:
+            _logger.error("MLLM API error: %s", e)
+            return False
 
     _logger.info(
         "Action decided — type: %s  element_id: %s  value: %s  direction: %s  distance: %s",
