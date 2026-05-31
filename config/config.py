@@ -35,6 +35,10 @@ class Config(BaseSettings):
     parse_api_retry_backoff_ms: int = Field(
         default=250, description="Retry back-off in milliseconds"
     )
+    parse_api_verify_ssl: bool = Field(
+        default=True,
+        description="Verify SSL certificates for OmniParser requests. Set false for ngrok or self-signed certs."
+    )
 
     # === Feature Flags ===
     mock_mode: bool = Field(

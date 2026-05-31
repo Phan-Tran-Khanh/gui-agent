@@ -36,12 +36,12 @@ Mock mode
 """
 
 import asyncio
+import base64
 import io
 import json
 import logging
-import mimetypes
+import ssl
 import time
-import uuid
 from typing import Any, Dict, List, Optional, Tuple
 from urllib import error, request
 
@@ -64,18 +64,10 @@ def _image_to_png_bytes(image: Image.Image) -> bytes:
     return buf.getvalue()
 
 
-def _build_multipart(image_bytes: bytes, filename: str) -> Tuple[bytes, str]:
-    boundary = f"----guiagent-{uuid.uuid4().hex}"
-    mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    header_lines = [
-        f"--{boundary}",
-        f'Content-Disposition: form-data; name="image"; filename="{filename}"',
-        f"Content-Type: {mime}",
-        "",
-    ]
-    prefix = "\r\n".join(header_lines).encode("utf-8") + b"\r\n"
-    suffix = f"\r\n--{boundary}--\r\n".encode("utf-8")
-    return prefix + image_bytes + suffix, f"multipart/form-data; boundary={boundary}"
+def _build_json_body(image_bytes: bytes) -> Tuple[bytes, str]:
+    """Encode image as base64 and wrap in the JSON body expected by /parse/."""
+    payload = {"base64_image": base64.b64encode(image_bytes).decode("utf-8")}
+    return json.dumps(payload).encode("utf-8"), "application/json"
 
 
 def _parse_raw_element(raw: Dict[str, Any], fallback_idx: int) -> ParsedElement:
@@ -101,15 +93,18 @@ def _call_omniparser_sync(
     timeout_sec: float,
     retry_count: int,
     retry_backoff_ms: int,
+    verify_ssl: bool = True,
 ) -> Dict[str, Any]:
-    body, content_type = _build_multipart(image_bytes, "screen.png")
-    url = f"{base_url.rstrip('/')}/api/parse"
+    body, content_type = _build_json_body(image_bytes)
+    url = f"{base_url.rstrip('/')}/parse/"
     last_error: Optional[Exception] = None
+    ssl_context = None if verify_ssl else ssl._create_unverified_context()  # pylint: disable=protected-access
 
     for attempt in range(retry_count + 1):
         try:
             req = request.Request(url=url, data=body, method="POST")
             req.add_header("Content-Type", content_type)
+            with request.urlopen(req, timeout=timeout_sec, context=ssl_context) as resp:
                 # utf-8-sig strips the BOM if the server includes one
                 return json.loads(resp.read().decode("utf-8-sig"))
         except error.HTTPError as exc:
@@ -158,6 +153,7 @@ async def _fetch_omniparser(image: Image.Image, config: Config) -> OmniParserRes
         config.parse_api_timeout_sec,
         config.parse_api_retry_count,
         config.parse_api_retry_backoff_ms,
+        config.parse_api_verify_ssl,
     )
 
     # Prefer the server's own latency value (seconds → ms); fall back to
