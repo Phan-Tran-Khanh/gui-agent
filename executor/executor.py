@@ -25,10 +25,19 @@ The executor is designed to work directly with the output of ground():
     #   screen_info    — set-of-mark text injected into the MLLM user message
     #   elements       — OmniParserResult.interactable, used to resolve
     #                    element_id → screen coordinates before ADB dispatch
-    success = execute(
+    # With a real device — executes ADB and returns annotated image
+    success, annotated = execute(
         action_text="tap the Search button",
         image=enhanced_image,
+        elements=result.interactable,
+        screen_info=screen_info,
         device_id="emulator-5554",
+    )
+
+    # Without a device — annotation-only / dry-run mode
+    success, annotated = execute(
+        action_text="tap the Search button",
+        image=enhanced_image,
         elements=result.interactable,
         screen_info=screen_info,
     )
@@ -74,10 +83,14 @@ Error handling::
     # MllmOutputError and ADB failures are caught internally and return False.
 """
 
+# pylint: disable=no-member  # cv2 is a C extension; pylint cannot introspect its members
+
 import logging
 from typing import List, Optional, Tuple
 
+import cv2
 import litellm
+import numpy as np
 from PIL import Image
 
 from adb import adb
@@ -348,6 +361,116 @@ def _map_to_adb(
 
 
 # ---------------------------------------------------------------------------
+# Action annotation — visual overlay drawn on the image to confirm the action
+# ---------------------------------------------------------------------------
+
+# Colours (BGR for cv2)
+_COLOR_TAP = (0, 140, 255)  # orange
+_COLOR_LONG_PRESS = (0, 0, 220)  # red
+_COLOR_INPUT = (34, 197, 94)  # green
+_COLOR_SWIPE = (255, 160, 0)  # blue
+_COLOR_SYSTEM = (180, 180, 180)  # grey for nav / system actions
+
+_FONT = cv2.FONT_HERSHEY_SIMPLEX
+
+
+def _annotate_action(
+    image: Image.Image,
+    output: ActionOutput,
+    elements: List[ParsedElement],
+) -> Image.Image:
+    """
+    Draw a visual indicator on the image confirming the decided action.
+
+    TAP / LONG_PRESS  — concentric rings at the element centre (single ring for
+                        TAP, double for LONG_PRESS) with the action label.
+    INPUT             — ring at the element centre with the typed text as label.
+    SWIPE             — arrowed line from start to end showing direction and extent.
+    All other actions — text badge in the bottom-left corner.
+    """
+    img = np.array(image.convert("RGB"))
+    h, w = img.shape[:2]
+    action = output.action_type
+
+    if action in (PhoneAction.TAP, PhoneAction.LONG_PRESS, PhoneAction.INPUT):
+        if output.element_id is not None:
+            coords = _resolve_center(output.element_id, elements, w, h)
+            if coords:
+                cx, cy = coords
+                color = (
+                    _COLOR_LONG_PRESS
+                    if action == PhoneAction.LONG_PRESS
+                    else _COLOR_INPUT if action == PhoneAction.INPUT else _COLOR_TAP
+                )
+                cv2.circle(img, (cx, cy), 28, color, 3)  # outer ring
+                cv2.circle(img, (cx, cy), 8, color, -1)  # centre dot
+                if action == PhoneAction.LONG_PRESS:
+                    cv2.circle(img, (cx, cy), 42, color, 2)  # extra ring
+                label = output.value if action == PhoneAction.INPUT else action.value
+                cv2.putText(
+                    img,
+                    str(label),
+                    (cx + 34, cy + 6),
+                    _FONT,
+                    0.55,
+                    color,
+                    2,
+                    cv2.LINE_AA,
+                )
+
+    elif action == PhoneAction.SWIPE:
+        fraction = _SWIPE_FRACTION.get(output.distance or "medium", 0.40)
+        cx, cy = w // 2, h // 2
+        direction = output.direction or "down"
+        if direction == "up":
+            dy = int(h * fraction / 2)
+            p1, p2 = (cx, cy + dy), (cx, cy - dy)
+        elif direction == "down":
+            dy = int(h * fraction / 2)
+            p1, p2 = (cx, cy - dy), (cx, cy + dy)
+        elif direction == "left":
+            dx = int(w * fraction / 2)
+            p1, p2 = (cx + dx, cy), (cx - dx, cy)
+        else:  # right
+            dx = int(w * fraction / 2)
+            p1, p2 = (cx - dx, cy), (cx + dx, cy)
+        cv2.arrowedLine(img, p1, p2, _COLOR_SWIPE, 4, tipLength=0.25)
+        cv2.putText(
+            img,
+            f"SWIPE {direction}",
+            (p2[0] + 8, p2[1] + 6),
+            _FONT,
+            0.55,
+            _COLOR_SWIPE,
+            2,
+            cv2.LINE_AA,
+        )
+
+    else:
+        # System / no-target actions: text badge in bottom-left
+        if action == PhoneAction.ANSWER:
+            label = f"ANSWER: {output.value}"
+        elif action == PhoneAction.OPEN_APP:
+            label = f"OPEN_APP: {output.value}"
+        else:
+            label = action.value
+        pad = 12
+        cv2.rectangle(img, (0, h - 40), (len(label) * 11 + pad, h), _COLOR_SYSTEM, -1)
+        cv2.putText(
+            img,
+            label,
+            (pad // 2, h - 12),
+            _FONT,
+            0.6,
+            (20, 20, 20),
+            2,
+            cv2.LINE_AA,
+        )
+
+    return Image.fromarray(img)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -355,36 +478,39 @@ def _map_to_adb(
 def execute(
     action_text: str,
     image: Image.Image,  # enhanced annotated PIL Image from ground()
-    device_id: str,
     elements: List[ParsedElement],  # OmniParserResult.interactable from ground()
     screen_info: str,  # set-of-mark text from ground()
-) -> bool:
+    device_id: Optional[str] = None,
+) -> Tuple[bool, Image.Image]:
     """
     Execute a natural language action on the device.
 
     Composes the set-of-mark screen_info into the MLLM user message alongside
-    the annotated screenshot, receives a structured ActionOutput with an
-    element_id (for element-based actions) or direction/distance (for SWIPE), resolves
-    element_id to pixel coordinates via the OmniParser element list, then
-    dispatches the ADB command.
+    the annotated screenshot, receives a structured ActionOutput, then either
+    dispatches an ADB command (when device_id is provided) or draws a visual
+    overlay on the image confirming the decided action (when device_id is None).
 
     Args:
         action_text:  Natural language description (e.g. "tap the Login button").
         image:        Enhanced annotated PIL Image returned by ground().
-        device_id:    Android device ID or emulator serial (e.g. "emulator-5554").
         elements:     Interactable elements from OmniParserResult, used to
                       resolve element_id → screen coordinates.
         screen_info:  Set-of-mark text from ground() injected into the MLLM
                       user message as visual context.
+        device_id:    Android device ID or emulator serial (e.g. "emulator-5554").
+                      When None the action is not dispatched to ADB; instead the
+                      decided action is drawn onto the returned image.
 
     Returns:
-        True if the action executed successfully, False otherwise.
+        Tuple of (success, annotated_image):
+        - success:          True if the action executed (or was annotated) successfully.
+        - annotated_image:  Image with the decided action overlaid as a visual indicator.
     """
     _logger.info("Executing: %.120s", action_text)
 
     if Config().mock_mode:
         # In mock mode skip the MLLM call. Tap the first available element so
-        # the full _map_to_adb → ADB path is still exercised end-to-end.
+        # the full resolution + annotation path is still exercised end-to-end.
         first = elements[0] if elements else None
         output = (
             ActionOutput(action_type=PhoneAction.TAP, element_id=first.idx)
@@ -409,10 +535,10 @@ def execute(
             output = mllm.complete(user_message=user_message, image=image)
         except MllmOutputError as e:
             _logger.error("MLLM output invalid: %s", e)
-            return False
+            return False, image
         except litellm.APIError as e:
             _logger.error("MLLM API error: %s", e)
-            return False
+            return False, image
 
     _logger.info(
         "Action decided — type: %s  element_id: %s  value: %s  direction: %s  distance: %s",
@@ -423,4 +549,13 @@ def execute(
         output.distance,
     )
 
-    return _map_to_adb(output, elements, image.width, image.height, device_id)
+    # Always annotate the image so the caller can display or log what was decided.
+    annotated = _annotate_action(image, output, elements)
+
+    if device_id is None:
+        # Annotation-only mode: visualise the action without touching a device.
+        _logger.info("No device_id — annotation-only mode, ADB skipped")
+        return True, annotated
+
+    success = _map_to_adb(output, elements, image.width, image.height, device_id)
+    return success, annotated
