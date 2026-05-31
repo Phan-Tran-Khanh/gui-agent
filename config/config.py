@@ -49,6 +49,10 @@ class Config(BaseSettings):
         default=False,
         description="Enable context-aware image masking (LessIsMore) before sending screenshots to the MLLM",
     )
+    vision_differentiator_enabled: bool = Field(
+        default=True,
+        description="Enable YDiff visual change detection to verify whether an action had effect on the UI",
+    )
 
     @field_validator("model")
     @classmethod

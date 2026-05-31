@@ -1,3 +1,6 @@
+# pylint: disable=no-member,no-name-in-module,invalid-name,catching-non-exception
+# cv2 and skimage are C extensions; pylint cannot introspect their members or exceptions.
+# invalid-name: Y and X are standard luminance/coordinate notation from the YDiff algorithm.
 """
 YDiff Change Detection - Action Effectiveness Verification
 
@@ -17,17 +20,57 @@ YDiff Algorithm:
 
 Main Entry Point:
     - detect_visual_change(img_prev, img_curr, poi, threshold) → bool (changed or not)
+
+Flexible image input:
+    All public functions accept str (file path), np.ndarray (BGR), or PIL.Image.
 """
 
-from typing import Optional, Tuple
+import logging
+import os
+from typing import Any, Optional, Tuple, Union
 
 import cv2
 import numpy as np
+from PIL import Image
 from skimage.metrics import structural_similarity as ssim
+
+_logger = logging.getLogger(__name__)
+
+# Type alias for any supported image input
+ImageLike = Union[str, np.ndarray, Image.Image]
+
+
+# ============================================================================
+# Image loading helper
+# ============================================================================
+
+
+def _load_as_bgr(img: Any) -> np.ndarray:
+    """
+    Convert any supported image format to a BGR numpy array.
+
+    Accepts:
+        str         — file path; loaded with cv2.imread
+        np.ndarray  — assumed already BGR; returned as-is
+        PIL.Image   — converted RGB → BGR
+    """
+    if isinstance(img, str):
+        if not os.path.exists(img):
+            raise ValueError(f"Image file not found: {img}")
+        arr = cv2.imread(img)
+        if arr is None:
+            raise ValueError(f"cv2 could not read image: {img}")
+        return arr
+    if isinstance(img, np.ndarray):
+        return img
+    # Assume PIL.Image
+    return cv2.cvtColor(np.array(img.convert("RGB")), cv2.COLOR_RGB2BGR)
+
 
 # ============================================================================
 # YDiff Helper Functions (From YDiff.md specification)
 # ============================================================================
+
 
 def extract_luminance(img: np.ndarray) -> np.ndarray:
     """
@@ -138,7 +181,11 @@ def compute_ssim(roi1: np.ndarray, roi2: np.ndarray) -> Tuple[float, np.ndarray]
     roi1 = roi1[:min_h, :min_w]
     roi2 = roi2[:min_h, :min_w]
 
-    score, ssim_map = ssim(roi1, roi2, full=True)
+    # data_range is required for float arrays; derive it from the combined value span.
+    data_range = (
+        float(max(roi1.max(), roi2.max()) - min(roi1.min(), roi2.min())) or 1.0
+    )  # guard against zero range on uniform patches
+    score, ssim_map = ssim(roi1, roi2, full=True, data_range=data_range)
     return float(score), ssim_map
 
 
@@ -165,7 +212,7 @@ def weighted_ssim_score(ssim_map: np.ndarray) -> float:
 
     # Create coordinate grids
     Y, X = np.ogrid[:h, :w]
-    dist = (X - cx)**2 + (Y - cy)**2
+    dist = (X - cx) ** 2 + (Y - cy) ** 2
 
     # Gaussian weighting (higher near center)
     sigma = (w / 4) ** 2
@@ -180,15 +227,18 @@ def weighted_ssim_score(ssim_map: np.ndarray) -> float:
 # Main YDiff Function - Binary Change Detector
 # ============================================================================
 
+
 def detect_visual_change(
-    img_prev: np.ndarray,
-    img_curr: np.ndarray,
+    img_prev: ImageLike,
+    img_curr: ImageLike,
     poi: Optional[Tuple[int, int]] = None,
     roi_size: int = 64,
-    threshold: float = 0.95
+    threshold: float = 0.95,
 ) -> bool:
     """
     Detect if two screenshots are visually different.
+
+    Accepts str (file path), np.ndarray (BGR), or PIL.Image for both images.
 
     Uses YDiff algorithm (YUV luminance + SSIM + weighted ROI) to determine
     if an action had visual effect on the UI.
@@ -202,60 +252,57 @@ def detect_visual_change(
         6. Return binary: changed = (weighted_ssim < threshold)
 
     Args:
-        img_prev (np.ndarray): Previous screenshot (BGR format, numpy array)
-        img_curr (np.ndarray): Current screenshot (BGR format, numpy array)
-        poi (Tuple[int, int], optional): Point of interest (x, y)
-                                        If None, uses image center
-        roi_size (int): ROI size in pixels (default: 64)
-        threshold (float): SSIM threshold for change detection
+        img_prev: Previous screenshot — file path, BGR ndarray, or PIL Image.
+        img_curr: Current screenshot  — file path, BGR ndarray, or PIL Image.
+        poi (Tuple[int, int], optional): Point of interest (x, y).
+                                        If None, uses image center.
+        roi_size (int): ROI size in pixels (default: 64).
+        threshold (float): SSIM threshold for change detection.
                           - 0.95–0.98: Static UI (default 0.95)
                           - 0.90–0.95: Slight animation
                           - 0.85–0.90: Aggressive detection
 
     Returns:
-        bool: True if images are different (action had effect), False if identical
+        bool: True if images are different (action had effect), False if identical.
 
     Example:
         ```python
-        # Check if action changed the UI
         changed = detect_visual_change(
-            screenshot_before,
-            screenshot_after,
-            poi=(540, 920),  # Touch coordinate from action
-            threshold=0.95
+            "before.png",
+            "after.png",
+            poi=(540, 920),
+            threshold=0.95,
         )
-
-        if changed:
-            print("✅ Action succeeded - UI changed")
-        else:
-            print("❌ Action failed - no visual change")
         ```
     """
     try:
-        # Validate inputs
-        if img_prev is None or img_prev.size == 0:
+        bgr_prev = _load_as_bgr(img_prev)
+        bgr_curr = _load_as_bgr(img_curr)
+
+        if bgr_prev is None or bgr_prev.size == 0:
+            _logger.error("detect_visual_change: img_prev is empty or unreadable")
+            return False
+        if bgr_curr is None or bgr_curr.size == 0:
+            _logger.error("detect_visual_change: img_curr is empty or unreadable")
             return False
 
-        if img_curr is None or img_curr.size == 0:
-            return False
-
-        # Use image center if POI not specified
+        # Use image centre if POI not specified
         if poi is None:
-            h, w = img_curr.shape[:2]
+            h, w = bgr_curr.shape[:2]
             poi = (w // 2, h // 2)
 
         x, y = poi
 
         # Step 1: Extract luminance from both images
-        Y_prev = extract_luminance(img_prev)
-        Y_curr = extract_luminance(img_curr)
+        y_prev = extract_luminance(bgr_prev)
+        y_curr = extract_luminance(bgr_curr)
 
         # Step 2: Extract ROI around POI
-        roi_prev = extract_roi(Y_prev, x, y, roi_size)
-        roi_curr = extract_roi(Y_curr, x, y, roi_size)
+        roi_prev = extract_roi(y_prev, x, y, roi_size)
+        roi_curr = extract_roi(y_curr, x, y, roi_size)
 
-        # Validate ROI size
         if roi_prev.size == 0 or roi_curr.size == 0:
+            _logger.warning("detect_visual_change: ROI is empty for POI (%d, %d)", x, y)
             return False
 
         # Step 3: Normalize for scale invariance
@@ -263,24 +310,30 @@ def detect_visual_change(
         roi_curr = normalize(roi_curr)
 
         # Step 4: Compute SSIM
-        ssim_raw, ssim_map = compute_ssim(roi_prev, roi_curr)
+        _, ssim_map = compute_ssim(roi_prev, roi_curr)
 
         # Step 5: Apply weighted emphasis near POI
         weighted_score = weighted_ssim_score(ssim_map)
 
-        # Step 6: Decision rule: changed if weighted_ssim < threshold
+        # Step 6: Decision rule — changed if weighted_ssim < threshold
         changed = weighted_score < threshold
-
+        _logger.debug(
+            "detect_visual_change: weighted_ssim=%.4f  threshold=%.2f  changed=%s",
+            weighted_score,
+            threshold,
+            changed,
+        )
         return changed
 
-    except Exception as e:
+    except (ValueError, cv2.error) as e:
+        _logger.error("detect_visual_change failed: %s", e)
         return False
-
 
 
 # ============================================================================
 # Utility Functions
 # ============================================================================
+
 
 def load_image_from_bytes(img_bytes: bytes) -> Optional[np.ndarray]:
     """
@@ -301,9 +354,9 @@ def load_image_from_bytes(img_bytes: bytes) -> Optional[np.ndarray]:
     """
     try:
         nparr = np.frombuffer(img_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        return img
-    except Exception as e:
+        return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    except (ValueError, TypeError) as e:
+        _logger.error("load_image_from_bytes failed: %s", e)
         return None
 
 
@@ -311,7 +364,7 @@ def detect_visual_change_from_bytes(
     img1_bytes: bytes,
     img2_bytes: bytes,
     poi: Optional[Tuple[int, int]] = None,
-    threshold: float = 0.95
+    threshold: float = 0.95,
 ) -> bool:
     """
     Detect if two screenshot bytes are visually different.
