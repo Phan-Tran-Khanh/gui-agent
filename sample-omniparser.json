@@ -1,0 +1,460 @@
+{
+  "parser_status": "completed",
+  "prompt": "open github",
+  "parser_request_id": "cb33573e-4b91-4a17-a0ea-3bf5a24bdafb",
+  "parser_latency_ms": 2539.8281999987375,
+  "elements_count": 41,
+  "parsed_screen": [
+    {
+      "type": "icon",
+      "bbox": [
+        0.05939992144703865, 0.09704276919364929, 0.2247794270515442,
+        0.19818085432052612
+      ],
+      "interactivity": true,
+      "content": "Döng ho ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 0
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.22172550857067108, 0.878634512424469, 0.40709584951400757,
+        0.9517996311187744
+      ],
+      "interactivity": true,
+      "content": "99+ ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 1
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.7667443156242371, 0.09675827622413635, 0.9505118727684021,
+        0.19849295914173126
+      ],
+      "interactivity": true,
+      "content": "in LinkedIn ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 2
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.06104877218604088, 0.21920429170131683, 0.22639445960521698,
+        0.322753369808197
+      ],
+      "interactivity": true,
+      "content": "Outlook ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 3
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.29458004236221313, 0.5859057903289795, 0.4660190939903259,
+        0.6919384598731995
+      ],
+      "interactivity": true,
+      "content": "Búk xe ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 4
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.5079191327095032, 0.4638465940952301, 0.7484865784645081,
+        0.5707376599311829
+      ],
+      "interactivity": true,
+      "content": "Locket ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 5
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.2909654974937439, 0.3417738378047943, 0.4790429472923279,
+        0.44601479172706604
+      ],
+      "interactivity": true,
+      "content": "ReadEra ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 6
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.5073200464248657, 0.5851277112960815, 0.7338040471076965,
+        0.6898411512374878
+      ],
+      "interactivity": true,
+      "content": "CamScanner ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 7
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.2998746633529663, 0.09763958305120468, 0.47751837968826294,
+        0.20271261036396027
+      ],
+      "interactivity": true,
+      "content": "GitHub ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 8
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.02595777064561844, 0.46523886919021606, 0.2614218592643738,
+        0.5696574449539185
+      ],
+      "interactivity": true,
+      "content": "Reddit ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 9
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.7779656052589417, 0.21895673871040344, 0.9402763247489929,
+        0.32175078988075256
+      ],
+      "interactivity": true,
+      "content": "YouTube ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 10
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.5370102524757385, 0.21988782286643982, 0.7012096643447876,
+        0.3232802450656891
+      ],
+      "interactivity": true,
+      "content": "Discord ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 11
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.5330837965011597, 0.3417791724205017, 0.714497447013855,
+        0.4453788995742798
+      ],
+      "interactivity": true,
+      "content": "Messenger ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 12
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.770379900932312, 0.4644816517829895, 0.9501579403877258,
+        0.5724299550056458
+      ],
+      "interactivity": true,
+      "content": "Slack ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 13
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.530307948589325, 0.09733867645263672, 0.7106335759162903,
+        0.20033150911331177
+      ],
+      "interactivity": true,
+      "content": "ChatGPT ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 14
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.06149249151349068, 0.7113627791404724, 0.22201988101005554,
+        0.8128710985183716
+      ],
+      "interactivity": true,
+      "content": "Gema ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 15
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.5071773529052734, 0.7093260288238525, 0.7329601645469666,
+        0.8128851056098938
+      ],
+      "interactivity": true,
+      "content": "myPVI ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 16
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.766901969909668, 0.3403697609901428, 0.954984724521637,
+        0.45036453008651733
+      ],
+      "interactivity": true,
+      "content": "S Shopee ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 17
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.2917656898498535, 0.7102601528167725, 0.4747454822063446,
+        0.8131244778633118
+      ],
+      "interactivity": true,
+      "content": "Mi Fitness ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 18
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.7777524590492249, 0.5876198410987854, 0.9393736124038696,
+        0.6914097666740417
+      ],
+      "interactivity": true,
+      "content": "mo Moni ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 19
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.2936033606529236, 0.21849994361400604, 0.4695737957954407,
+        0.3260374069213867
+      ],
+      "interactivity": true,
+      "content": "Zalo Zalo ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 20
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.05793733149766922, 0.5868668556213379, 0.23370829224586487,
+        0.6971451640129089
+      ],
+      "interactivity": true,
+      "content": "2 Mxh ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 21
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.264076828956604, 0.4644215404987335, 0.5016443729400635,
+        0.5677800178527832
+      ],
+      "interactivity": true,
+      "content": "Telegram ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 22
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.05681297555565834, 0.3421695828437805, 0.2266702651977539,
+        0.4491821229457855
+      ],
+      "interactivity": true,
+      "content": "Notion ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 23
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.7676597833633423, 0.01765856333076954, 0.81043940782547,
+        0.03888929262757301
+      ],
+      "interactivity": true,
+      "content": "4G ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 24
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.16722337901592255, 0.5790881514549255, 0.23186759650707245,
+        0.6163705587387085
+      ],
+      "interactivity": true,
+      "content": "2 ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 25
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.7343655824661255, 0.7102239727973938, 0.9700776934623718,
+        0.8200236558914185
+      ],
+      "interactivity": true,
+      "content": "Go GoMo ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 26
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.8579352498054504, 0.015543520450592041, 0.9227117896080017,
+        0.040994979441165924
+      ],
+      "interactivity": true,
+      "content": "88 ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 27
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.038151782006025314, 0.014751274138689041, 0.17639952898025513,
+        0.041854362934827805
+      ],
+      "interactivity": true,
+      "content": "0:00 ",
+      "source": "box_yolo_content_ocr",
+      "element_index": 28
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.4094405174255371, 0.8812961578369141, 0.5794544219970703,
+        0.9517589807510376
+      ],
+      "interactivity": true,
+      "content": "Google Chrome web browser.",
+      "source": "box_yolo_content_yolo",
+      "element_index": 29
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.6025693416595459, 0.882455050945282, 0.7718577980995178,
+        0.951891303062439
+      ],
+      "interactivity": true,
+      "content": "Instagram.",
+      "source": "box_yolo_content_yolo",
+      "element_index": 30
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.031657345592975616, 0.881793200969696, 0.20612581074237823,
+        0.9520252346992493
+      ],
+      "interactivity": true,
+      "content": "a phone call or phone call.",
+      "source": "box_yolo_content_yolo",
+      "element_index": 31
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.7928749918937683, 0.8822444677352905, 0.9578536152839661,
+        0.9519874453544617
+      ],
+      "interactivity": true,
+      "content": "the Photos app.",
+      "source": "box_yolo_content_yolo",
+      "element_index": 32
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.6610607504844666, 0.01754644140601158, 0.7072535753250122,
+        0.038657549768686295
+      ],
+      "interactivity": true,
+      "content": "Code",
+      "source": "box_yolo_content_yolo",
+      "element_index": 33
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.7137549519538879, 0.01781458407640457, 0.7592124342918396,
+        0.03880508244037628
+      ],
+      "interactivity": true,
+      "content": "WiFi connectivity.",
+      "source": "box_yolo_content_yolo",
+      "element_index": 34
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.6117793321609497, 0.017992239445447922, 0.6533516645431519,
+        0.03906771540641785
+      ],
+      "interactivity": true,
+      "content": "Clock",
+      "source": "box_yolo_content_yolo",
+      "element_index": 35
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.4344501793384552, 0.8304786682128906, 0.4749775230884552,
+        0.8503268957138062
+      ],
+      "interactivity": true,
+      "content": "More options",
+      "source": "box_yolo_content_yolo",
+      "element_index": 36
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.9151113033294678, 0.017525989562273026, 0.9539355635643005,
+        0.03993483632802963
+      ],
+      "interactivity": true,
+      "content": "Lightning",
+      "source": "box_yolo_content_yolo",
+      "element_index": 37
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.4773571491241455, 0.8296884298324585, 0.5192018151283264,
+        0.8504690527915955
+      ],
+      "interactivity": true,
+      "content": "Page 2",
+      "source": "box_yolo_content_yolo",
+      "element_index": 38
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.5240058898925781, 0.8308679461479187, 0.5658138990402222,
+        0.849911630153656
+      ],
+      "interactivity": true,
+      "content": "M0,0L9,0 4.5,5z",
+      "source": "box_yolo_content_yolo",
+      "element_index": 39
+    },
+    {
+      "type": "icon",
+      "bbox": [
+        0.8126824498176575, 0.018194979056715965, 0.8550263047218323,
+        0.039764925837516785
+      ],
+      "interactivity": true,
+      "content": "a menu or list options.",
+      "source": "box_yolo_content_yolo",
+      "element_index": 40
+    }
+  ]
+}

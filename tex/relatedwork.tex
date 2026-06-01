@@ -1,0 +1,38 @@
+\section{Related Work}
+\label{related}
+
+\subsection{Mobile GUI Agents}
+
+Recent advances in multi-modal large language models (MLLMs) have enabled the development of agents capable of interacting with graphical user interfaces (GUIs) using screenshots as the primary source of perception. These systems generally operate in a perception--reasoning--action loop, where the current screen is analyzed, a task-specific action is selected, and the environment is updated through user-like interactions.
+
+A common design pattern in modern GUI agents is hierarchical task decomposition, which breaks complex user instructions into milestones and executable subtasks. ASSIST-GUI \cite{gao2023assistgui} introduces a structured planning framework that explicitly separates task decomposition from action execution, improving the handling of long-horizon mobile tasks. Related systems explore complementary directions. ShowUI \cite{lin2025showui} investigates end-to-end vision-language interaction for GUI control, while other frameworks focus on exploration-driven behavior and adaptation to previously unseen applications \cite{sun2025gui,li2025uipro}. Collectively, these studies demonstrate the importance of planning and iterative execution for GUI automation. However, action execution remains vulnerable to grounding errors when model predictions are not explicitly tied to interface elements detected on the screen.
+
+\subsection{Grounded GUI Understanding}
+
+Grounding model decisions to visible interface elements is a fundamental challenge in GUI automation. Early approaches often relied on direct coordinate prediction, which can lead to action hallucination when models generate clicks on non-existent or incorrectly localized targets.
+
+Recent work addresses this limitation by converting screenshots into structured representations composed of UI elements, textual content, and spatial metadata. Representative approaches include SeeClick \cite{cheng2024seeclick}, UGround \cite{qian2025uground}, and OmniParser \cite{lu2024omniparser}, which aim to bridge the gap between visual perception and actionable interface understanding by identifying candidate UI elements and their corresponding locations on the screen. Such structured representations allow agents to reason over a discrete action space rather than raw pixel coordinates, improving interpretability and reducing execution errors.
+
+Among these approaches, OmniParser \cite{lu2024omniparser} is particularly relevant to this work because it converts screenshots into structured UI elements through a combination of detection and segmentation techniques. The resulting element-level representation enables action selection through interface components rather than free-form coordinates, providing a more constrained and verifiable interaction mechanism. Nevertheless, the effectiveness of grounded action selection remains dependent on parser quality, since missed or incorrectly localized elements directly affect downstream decision making.
+
+Several studies further improve GUI perception by restricting attention to task-relevant regions through masking, cropping, or region-selection strategies. These techniques aim to reduce visual clutter and improve localization accuracy, although they introduce additional preprocessing complexity and may omit contextual information required for decision making \cite{ge2025iris,chen2025less}.
+
+\textcolor{red}{TODO: Add citations to other representative grounding methods discussed in this subsection.}
+
+\subsection{Reflection and Verification}
+
+Long-horizon GUI tasks frequently involve execution failures that are difficult to detect from a single interaction step. Consequently, many GUI-agent frameworks incorporate reflection mechanisms to monitor progress, verify intermediate outcomes, and recover from execution errors.
+
+Reflection techniques include visual change analysis, stall detection, screen-question answering, sub-goal verification, and replanning. These methods attempt to determine whether an action produced the intended result and whether the current subtask has been successfully completed. ScreenQA \cite{hsiao2025screenqa} provides large-scale supervision for reasoning over mobile screenshots and demonstrates the feasibility of verification-oriented understanding of screen state. In practice, many systems implement verification and replanning using general-purpose MLLMs such as GPT-4o \cite{hurst2024gpt}, leveraging their reasoning capabilities to assess task progress and generate corrective actions.
+
+Although reflection mechanisms have shown promise for improving robustness, their effectiveness varies substantially across tasks and environments. Designing reliable and computationally efficient verification strategies remains an active area of research, particularly for mobile interfaces where visual changes may be subtle and highly context-dependent.
+
+\textcolor{red}{TODO: Add citations to GUI-agent works that explicitly implement reflection, replanning, self-correction, or stall detection.}
+
+\subsection{Positioning of This Work}
+
+Prior work has demonstrated the importance of task decomposition, grounded perception, and reflection mechanisms for GUI automation. However, comparatively less attention has been paid to understanding how explicit UI-element grounding affects end-to-end mobile automation performance within a practical execution environment.
+
+Unlike studies that primarily focus on developing new foundation models or grounding architectures, this work emphasizes system-level integration and evaluation. The proposed system combines structured GUI parsing, element-level action selection, and device-level execution within a unified mobile automation pipeline inspired by existing GUI-agent frameworks. Rather than introducing a new perception or reasoning model, the primary objective is to investigate how explicit grounding through detected UI elements can be integrated into an end-to-end mobile agent and evaluated through both benchmark-based experiments and real-device execution.
+
+This positioning prioritizes reproducibility, observability, and error analysis, providing practical insights into the role of grounding in mobile GUI automation and its impact on task execution reliability.

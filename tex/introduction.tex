@@ -1,0 +1,24 @@
+\section{Introduction}
+\label{introduction}
+
+Mobile applications remain the primary interface for many everyday tasks, yet their graphical user interfaces (GUIs) are not designed for automation. Recent multi-modal large language models (MLLMs) offer promising reasoning capabilities, but naive GUI control often fails because models hallucinate actions or coordinates that do not exist on the screen \cite{gao2023assistgui}. This gap motivates a system that treats the MLLM as a decision engine while grounding every action in explicit, screen-derived evidence.
+
+This paper presents a mobile GUI agent that operates purely from screenshots and uses an external parser to produce a structured representation of the current screen \cite{lu2024omniparser}. The agent decomposes a user goal into sub-goals, retrieves a unified action space (click, type, scroll, and optional composite skills), and compiles a GUI state from visual and linguistic context. Each step selects an element index from the detected UI set and converts its bounding box into device coordinates for execution, reducing hallucinated interactions. A reflection stage monitors progress, detects stalled interactions, and triggers replanning when needed using an MLLM (e.g., GPT or Gemini) for verification.
+
+Our implementation includes a sequential executor that closes the loop between perception and action on a real device, along with a streaming backend and a lightweight frontend for observability. The system emits step-level events, provides annotated screenshots, and exposes an interface suitable for iterative development of vision and reflection modules. Although parts of the reflection and vision enhancement pipeline are ongoing, the architecture demonstrates how to combine reliable grounding with high-level MLLM decision making in a practical, device-integrated system.
+
+In summary, our contributions are:
+\begin{itemize}
+	\item A screenshot-only mobile GUI agent pipeline that integrates planning, grounded action selection, execution, and reflection.
+	\item A grounding mechanism that maps MLLM decisions to detected UI elements, eliminating free-form coordinate prediction.
+	\item An end-to-end implementation with event streaming and observability to support analysis and future extensions.
+\end{itemize}
+
+
+% \begin{figure*}[!t]
+%     \centering
+%     \includegraphics[width=\linewidth]{images/myimage.pdf}
+%     \caption{myimage}
+%     \label{fig:myimage}
+% \end{figure*}
+

@@ -1,0 +1,9 @@
+\section{Proposed System}
+\label{method}
+
+\subsection{Overview}
+We design a screenshot-only mobile GUI agent that closes the perception--action loop with explicit grounding. Given a user goal, the system performs hierarchical task decomposition into sub-goals, enumerates a unified action space, and constructs a GUI state from two sources: (i) a visual parser that returns UI elements with bounding boxes, and (ii) linguistic context summarizing past actions and the active sub-goal. The decision module selects an element index rather than free-form coordinates; this index is mapped to device coordinates for execution. After each action, a reflection step verifies progress using an MLLM-based check and decides whether to proceed, replan, or terminate.
+
+The design emphasizes interface reliability and observability. Each step emits structured events, enabling debugging and analysis of failure modes such as missed detections, incorrect grounding, or stalled progress. This overview sets up the system architecture and implementation details presented next.
+\subsection{System Architecture}
+\subsection{Implementation Details}
