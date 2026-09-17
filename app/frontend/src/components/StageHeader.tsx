@@ -4,11 +4,12 @@ interface StageHeaderProps {
   stage: AgentStage;
   connected: boolean;
   onReset: () => void;
+  onLoadMock?: () => void;
 }
 
 const stages: AgentStage[] = ["queued", "planning", "executing_subgoal", "reflecting", "replanning", "completed", "failed"];
 
-export default function StageHeader({ stage, connected, onReset }: StageHeaderProps) {
+export default function StageHeader({ stage, connected, onReset, onLoadMock }: StageHeaderProps) {
   return (
     <header className="stage-header">
       <div>
@@ -26,6 +27,9 @@ export default function StageHeader({ stage, connected, onReset }: StageHeaderPr
 
       <div className="header-actions">
         <span className={`signal ${connected ? "signal-up" : "signal-down"}`}>{connected ? "connected" : "disconnected"}</span>
+        {onLoadMock && (
+          <button type="button" onClick={onLoadMock}>Load Mock</button>
+        )}
         <button type="button" onClick={onReset}>Reset View</button>
       </div>
     </header>

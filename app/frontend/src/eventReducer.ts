@@ -136,6 +136,29 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     activeSubgoalId: action.event.subgoalId ?? state.activeSubgoalId,
     latestReasoning: action.event.reasoning ?? state.latestReasoning,
     latestScreenshot: action.event.screenshotBase64 ?? action.event.screenshotUrl ?? state.latestScreenshot,
-    messages: systemMessage ? [...state.messages, systemMessage] : state.messages
+    messages: (() => {
+      let msgs = state.messages.slice();
+      // If the event carries a chatMessage in metadata, append it to mission chat
+      try {
+        const chat = (action.event.metadata as any)?.chatMessage;
+        if (chat && chat.text) {
+          msgs = [
+            ...msgs,
+            {
+              id: chat.id ?? `m-${action.event.eventId}`,
+              role: chat.role === "assistant" ? "system" : (chat.role ?? "system"),
+              text: chat.text,
+              timestamp: chat.timestamp ?? action.event.timestamp
+            }
+          ];
+        }
+      } catch {}
+
+      if (systemMessage) {
+        msgs = [...msgs, systemMessage];
+      }
+
+      return msgs;
+    })()
   };
 }
