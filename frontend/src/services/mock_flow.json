@@ -1,0 +1,178 @@
+{
+  "taskId": "task-mock-001",
+  "title": "Open latest commit of gui-agent",
+  "createdAt": "2026-06-02T00:00:00.000Z",
+  "missionChat": [
+    {
+      "messageId": "msg-1",
+      "role": "user",
+      "content": "Open the latest commit of the repository gui-agent.",
+      "timestamp": "2026-06-02T00:00:01.000Z"
+    },
+    {
+      "messageId": "msg-2",
+      "role": "assistant",
+      "content": "I'll open the GitHub app, navigate to Top Repositories, select Phan-Tran-Khanh/gui-agent, open the Commits tab, and open the most recent commit.",
+      "timestamp": "2026-06-02T00:00:03.000Z"
+    },
+    {
+      "messageId": "msg-3",
+      "role": "assistant",
+      "content": "Plan: 1) Launch GitHub app, 2) Go to Top Repositories, 3) Select gui-agent, 4) Open Commits, 5) Open latest commit, 6) Verify.",
+      "timestamp": "2026-06-02T00:00:05.000Z"
+    }
+  ],
+  "execution_rall": [
+    {
+      "step": 1,
+      "eventId": "task-mock-001-0",
+      "type": "task_started",
+      "stage": "planning",
+      "title": "Task accepted",
+      "description": "Planner initialized and plan generated.",
+      "reasoning": "Decompose user goal into navigational steps",
+      "confidence": 0.95,
+      "timestamp": "2026-06-02T00:00:06.000Z"
+    },
+    {
+      "step": 2,
+      "eventId": "task-mock-001-1",
+      "type": "subgoal_started",
+      "stage": "executing_subgoal",
+      "subgoalId": "sg-launch-github",
+      "title": "Launch GitHub app",
+      "description": "Tap GitHub icon on the home screen.",
+      "reasoning": "App icon visible on home screen.",
+      "confidence": 0.88,
+      "timestamp": "2026-06-02T00:00:10.000Z",
+      "screenshotUrl": "https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=1200&q=60"
+    },
+    {
+      "step": 3,
+      "eventId": "task-mock-001-2",
+      "type": "action_decided",
+      "stage": "executing_subgoal",
+      "subgoalId": "sg-launch-github",
+      "title": "Action: tap",
+      "description": "Tap the GitHub app icon.",
+      "reasoning": "Single tap on app icon should launch.",
+      "confidence": 0.86,
+      "timestamp": "2026-06-02T00:00:12.000Z"
+    },
+    {
+      "step": 4,
+      "eventId": "task-mock-001-3",
+      "type": "action_executed",
+      "stage": "executing_subgoal",
+      "subgoalId": "sg-launch-github",
+      "title": "App launched",
+      "description": "GitHub app opened to homepage.",
+      "reasoning": "Homepage visible after launch.",
+      "confidence": 0.9,
+      "timestamp": "2026-06-02T00:00:15.000Z",
+      "screenshotUrl": "https://images.unsplash.com/photo-1508830524289-0adcbe822b40?auto=format&fit=crop&w=1200&q=60"
+    },
+    {
+      "step": 5,
+      "eventId": "task-mock-001-4",
+      "type": "subgoal_started",
+      "stage": "executing_subgoal",
+      "subgoalId": "sg-nav-top-repos",
+      "title": "Navigate to Top Repositories",
+      "description": "Open 'Top Repositories' from homepage.",
+      "reasoning": "Menu entry detected.",
+      "confidence": 0.84,
+      "timestamp": "2026-06-02T00:00:18.000Z",
+      "screenshotUrl": "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1200&q=60"
+    },
+    {
+      "step": 6,
+      "eventId": "task-mock-001-5",
+      "type": "action_decided",
+      "stage": "executing_subgoal",
+      "subgoalId": "sg-select-repo",
+      "title": "Select repository gui-agent",
+      "description": "Tap the repository entry 'Phan-Tran-Khanh / gui-agent'.",
+      "reasoning": "Repo appears in top list; select it.",
+      "confidence": 0.85,
+      "timestamp": "2026-06-02T00:00:21.000Z"
+    },
+    {
+      "step": 7,
+      "eventId": "task-mock-001-6",
+      "type": "action_executed",
+      "stage": "executing_subgoal",
+      "subgoalId": "sg-select-repo",
+      "title": "Repository opened",
+      "description": "Repository page for gui-agent is visible.",
+      "reasoning": "Repo header and menu present.",
+      "confidence": 0.9,
+      "timestamp": "2026-06-02T00:00:24.000Z",
+      "screenshotUrl": "https://images.unsplash.com/photo-1487014679447-9f8336841d58?auto=format&fit=crop&w=1200&q=60"
+    },
+    {
+      "step": 8,
+      "eventId": "task-mock-001-7",
+      "type": "subgoal_started",
+      "stage": "executing_subgoal",
+      "subgoalId": "sg-open-commits",
+      "title": "Open Commits tab",
+      "description": "Switch to the 'Commits' view for the default branch.",
+      "reasoning": "Commits tab located in repo navigation.",
+      "confidence": 0.82,
+      "timestamp": "2026-06-02T00:00:26.000Z"
+    },
+    {
+      "step": 9,
+      "eventId": "task-mock-001-8",
+      "type": "action_executed",
+      "stage": "executing_subgoal",
+      "subgoalId": "sg-open-commit",
+      "title": "Open latest commit 'Merge pull request #4'",
+      "description": "Opened the most recent commit from the commits list.",
+      "reasoning": "Latest commit is at top of the commits list.",
+      "confidence": 0.93,
+      "timestamp": "2026-06-02T00:00:28.000Z",
+      "screenshotUrl": "https://raw.githubusercontent.com/Phan-Tran-Khanh/gui-agent/refs/heads/feat/integrate-planner-executor-in-be/output/step_6_raw.png",
+      "rawImageForObservability": "https://raw.githubusercontent.com/Phan-Tran-Khanh/gui-agent/refs/heads/feat/integrate-planner-executor-in-be/output/step_6_raw.png"
+    },
+    {
+      "step": 10,
+      "eventId": "task-mock-001-9",
+      "type": "subgoal_started",
+      "stage": "reflecting",
+      "subgoalId": "sg-review-commit",
+      "title": "Review commit details",
+      "description": "Inspect commit diff and message to confirm target change.",
+      "reasoning": "Diff and commit message visible; matches goal.",
+      "confidence": 0.9,
+      "timestamp": "2026-06-02T00:00:32.000Z"
+    },
+    {
+      "step": 11,
+      "eventId": "task-mock-001-10",
+      "type": "reflection_updated",
+      "stage": "reflecting",
+      "subgoalId": "sg-review-commit",
+      "title": "Progress verified",
+      "description": "Latest commit opened and verified as the correct target.",
+      "confidence": 0.96,
+      "timestamp": "2026-06-02T00:00:35.000Z"
+    },
+    {
+      "step": 12,
+      "eventId": "task-mock-001-11",
+      "type": "task_completed",
+      "stage": "completed",
+      "title": "Task completed",
+      "description": "Latest commit opened and confirmed.",
+      "confidence": 0.97,
+      "timestamp": "2026-06-02T00:00:38.000Z"
+    }
+  ],
+  "metadata": {
+    "source": "frontend-mock",
+    "replay": true,
+    "version": "1.0.0"
+  }
+}

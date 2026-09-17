@@ -1,4 +1,5 @@
 import { AgentEvent, AgentStage, AgentEventType } from "../types";
+import mockFlow from "./mock_flow.json";
 
 interface EmitConfig {
   taskId: string;
@@ -6,25 +7,35 @@ interface EmitConfig {
   onEnd: () => void;
 }
 
-const script: Array<{ type: AgentEventType; stage: AgentStage; title: string; description?: string; subgoalId?: string; reasoning?: string }> = [
-  { type: "task_started", stage: "planning", title: "Task accepted", description: "Initializing planner." },
-  { type: "plan_generated", stage: "planning", title: "Plan generated", description: "3 subgoals created." },
-  { type: "subgoal_started", stage: "executing_subgoal", title: "Open settings screen", subgoalId: "sg-1" },
-  {
-    type: "action_decided",
-    stage: "executing_subgoal",
-    title: "Action: tap",
-    subgoalId: "sg-1",
-    reasoning: "Top-right avatar icon is likely account entry point.",
-    description: "Decided next click target."
-  },
-  { type: "action_executed", stage: "executing_subgoal", title: "Action executed", subgoalId: "sg-1", description: "ADB tap successful." },
-  { type: "reflection_updated", stage: "reflecting", title: "Progress verified", subgoalId: "sg-1", description: "Subgoal likely complete." },
-  { type: "subgoal_started", stage: "executing_subgoal", title: "Enable notification toggle", subgoalId: "sg-2" },
-  { type: "replan_triggered", stage: "replanning", title: "Replan triggered", subgoalId: "sg-2", description: "UI changed. Expanding subgoal." },
-  { type: "subgoal_started", stage: "executing_subgoal", title: "Find notification setting", subgoalId: "sg-2b" },
-  { type: "task_completed", stage: "completed", title: "Task completed", description: "All subgoals accomplished." }
-];
+// Build the scripted events from the JSON mock flow so the frontend sees realistic events.
+const rawExecution: any[] = (mockFlow as any).execution_rall ?? [];
+const rawChat: any[] = (mockFlow as any).missionChat ?? [];
+
+const script: Array<Partial<AgentEvent>> = [];
+
+// First, convert mission chat messages into lightweight AgentEvent entries with chat metadata.
+rawChat.forEach((m: any, idx: number) => {
+  script.push({
+    type: "plan_generated",
+    stage: "planning",
+    title: "Mission chat",
+    description: m.content,
+    timestamp: m.timestamp,
+    metadata: {
+      chatMessage: {
+        id: m.messageId ?? `msg-${idx}`,
+        role: m.role === "assistant" ? "system" : m.role,
+        text: m.content,
+        timestamp: m.timestamp
+      }
+    }
+  });
+});
+
+// Then append the execution events from the flow
+rawExecution.forEach((e: any) => {
+  script.push(e);
+});
 
 export function runMockStream(config: EmitConfig): () => void {
   let isCancelled = false;
@@ -40,23 +51,24 @@ export function runMockStream(config: EmitConfig): () => void {
       return;
     }
 
-    const model = script[i];
+    const model = script[i] as any;
     const event: AgentEvent = {
-      eventId: `${config.taskId}-${i}`,
+      eventId: model.eventId ?? `${config.taskId}-${i}`,
       taskId: config.taskId,
       sequence: i,
-      timestamp: new Date(Date.now() + i * 1200).toISOString(),
-      stage: model.stage,
-      type: model.type,
-      title: model.title,
+      timestamp: model.timestamp ?? new Date(Date.now() + i * 1200).toISOString(),
+      stage: (model.stage as AgentStage) ?? "planning",
+      type: (model.type as AgentEventType) ?? "gui_state_updated",
+      title: model.title ?? "",
       description: model.description,
       subgoalId: model.subgoalId,
-      confidence: 0.75 + ((i % 3) * 0.08),
+      confidence: typeof model.confidence === "number" ? model.confidence : 0.75 + ((i % 3) * 0.08),
       reasoning: model.reasoning,
-      screenshotUrl: "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1200&q=60",
+      screenshotUrl: model.screenshotUrl ?? model.screenshotUrl,
       metadata: {
         replay: false,
-        source: "mock"
+        source: "mock",
+        ...(model.metadata ?? {})
       }
     };
 

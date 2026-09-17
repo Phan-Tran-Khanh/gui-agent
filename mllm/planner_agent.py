@@ -402,8 +402,6 @@ Respond ONLY with the JSON array, no additional text.
                                 center_x = (x_min + x_max) / 2
                                 center_y = (y_min + y_max) / 2
                                 
-                                # Assuming standard screen size 720x1600 for mobile
-                                # These will be adjusted based on actual device resolution
                                 pixel_x = int(center_x * 720)
                                 pixel_y = int(center_y * 1600)
                                 coordinates = [pixel_x, pixel_y]

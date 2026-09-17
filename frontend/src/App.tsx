@@ -70,6 +70,13 @@ export default function App() {
     });
   };
 
+  const handleLoadMock = () => {
+    const tempTaskId = createTaskId();
+    dispatch({ type: "new_task", taskId: tempTaskId, prompt: "Load mock data" });
+    setIsRunning(true);
+    startMock(tempTaskId);
+  };
+
   const startSequentialTask = async (prompt: string): Promise<void> => {
     const tempTaskId = createTaskId();
     // dispatch({ type: "new_task", taskId: tempTaskId, prompt });
@@ -136,6 +143,7 @@ export default function App() {
           cancelMockRef.current?.();
           dispatch({ type: "reset" });
         }}
+        onLoadMock={handleLoadMock}
       />
 
       <main className="workspace-grid">
