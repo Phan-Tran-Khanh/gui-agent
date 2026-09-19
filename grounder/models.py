@@ -1,7 +1,7 @@
 """Data models mirroring the OmniParser output schema."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -24,6 +24,8 @@ class ParsedElement:
     interactivity: bool
     content: Optional[str] = None
     source: Optional[str] = None
+    bbox_valid: bool = True
+    diagnostic: Optional[str] = None
 
 
 @dataclass
@@ -47,3 +49,6 @@ class OmniParserResult:
     height: int
     latency_ms: float
     screen_info: str = field(default="")
+    request_id: Optional[str] = None
+    parser_metadata: Dict[str, Any] = field(default_factory=dict)
+    raw_response: Dict[str, Any] = field(default_factory=dict)

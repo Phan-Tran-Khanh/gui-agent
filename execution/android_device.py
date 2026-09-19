@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import io
+import re
 import subprocess
 import time
+import xml.etree.ElementTree as element_tree
 from collections.abc import Callable
-from typing import Sequence
+from typing import Any, Sequence
+from uuid import uuid4
+
+from PIL import Image, UnidentifiedImageError
 
 from .models import ActionKind, GroundedAction, TransportResult
 
 
 CommandRunner = Callable[[tuple[str, ...]], subprocess.CompletedProcess[str]]
+BinaryCommandRunner = Callable[[tuple[str, ...]], subprocess.CompletedProcess[bytes]]
 FocusChecker = Callable[[], bool]
 SleepFunction = Callable[[float], None]
 
@@ -30,6 +37,7 @@ class AndroidDevice:
         serial: str | None = None,
         adb_path: str = "adb",
         command_runner: CommandRunner | None = None,
+        binary_command_runner: BinaryCommandRunner | None = None,
         focus_checker: FocusChecker | None = None,
         focus_poll_attempts: int = 3,
         sleep_fn: SleepFunction = time.sleep,
@@ -37,6 +45,7 @@ class AndroidDevice:
         self._serial = serial
         self._adb_path = adb_path
         self._command_runner = command_runner or self._run_subprocess
+        self._binary_command_runner = binary_command_runner or self._run_binary_subprocess
         self._focus_checker = focus_checker
         self._focus_poll_attempts = focus_poll_attempts
         self._sleep = sleep_fn
@@ -82,6 +91,69 @@ class AndroidDevice:
             for line in result.stdout.splitlines()
             if line.startswith("package:") and line.removeprefix("package:").strip()
         }
+
+    def capture_screenshot(self) -> Image.Image | None:
+        """Capture and decode the exact screenshot used for coordinate grounding."""
+
+        command = self._adb_command(("exec-out", "screencap", "-p"))
+        try:
+            completed = self._binary_command_runner(command)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if completed.returncode != 0 or not completed.stdout:
+            return None
+        try:
+            with Image.open(io.BytesIO(completed.stdout)) as image:
+                image.load()
+                return image.copy()
+        except (OSError, UnidentifiedImageError):
+            return None
+
+    def ui_hierarchy_xml(self) -> str | None:
+        """Return a validated UIAutomator hierarchy without mutating device state."""
+
+        remote_path = f"/sdcard/gui_agent_window_{uuid4().hex}.xml"
+        try:
+            dumped = self._run("shell", "uiautomator", "dump", remote_path)
+            if not dumped.success:
+                return None
+            hierarchy = self._run("shell", "cat", remote_path)
+            if not hierarchy.success:
+                return None
+            try:
+                element_tree.fromstring(hierarchy.stdout)
+            except element_tree.ParseError:
+                return None
+            return hierarchy.stdout
+        finally:
+            self._run("shell", "rm", "-f", remote_path)
+
+    def foreground_app(self) -> dict[str, str] | None:
+        """Return the foreground package/activity when Android exposes one."""
+
+        for args in (
+            ("shell", "dumpsys", "window", "windows"),
+            ("shell", "dumpsys", "activity", "activities"),
+        ):
+            result = self._run(*args)
+            if not result.success:
+                continue
+            foreground = _parse_foreground_app(result.stdout)
+            if foreground is not None:
+                return foreground
+        return None
+
+    def perception_state(self) -> dict[str, Any]:
+        """Collect optional, read-only metadata for one perception observation."""
+
+        state: dict[str, Any] = {}
+        hierarchy_xml = self.ui_hierarchy_xml()
+        if hierarchy_xml is not None:
+            state["ui_hierarchy_xml"] = hierarchy_xml
+        foreground = self.foreground_app()
+        if foreground is not None:
+            state["foreground_app"] = foreground
+        return state
 
     def _tap(self, action: GroundedAction) -> TransportResult:
         if action.point is None:
@@ -199,8 +271,39 @@ class AndroidDevice:
     def _run_subprocess(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
         return subprocess.run(command, capture_output=True, check=False, text=True)
 
+    @staticmethod
+    def _run_binary_subprocess(command: tuple[str, ...]) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.run(command, capture_output=True, check=False)
+
 
 def _escape_adb_text(value: str) -> str:
     """Encode whitespace for ``adb shell input text`` without shell interpolation."""
 
     return value.replace(" ", "%s")
+
+
+_FOREGROUND_COMPONENT_PATTERN = re.compile(
+    r"(?P<package>[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)/"
+    r"(?P<activity>\.?[A-Za-z0-9_.$]+)"
+)
+
+
+def _parse_foreground_app(output: str) -> dict[str, str] | None:
+    """Extract a package/activity component from standard dumpsys output."""
+
+    focus_markers = (
+        "mCurrentFocus",
+        "mFocusedApp",
+        "mResumedActivity",
+        "topResumedActivity",
+    )
+    for line in output.splitlines():
+        if not any(marker in line for marker in focus_markers):
+            continue
+        match = _FOREGROUND_COMPONENT_PATTERN.search(line)
+        if match is not None:
+            return {
+                "package": match.group("package"),
+                "activity": match.group("activity"),
+            }
+    return None

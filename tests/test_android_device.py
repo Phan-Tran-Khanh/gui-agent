@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import subprocess
 import unittest
+from io import BytesIO
 
 from execution.android_device import AndroidDevice
 from execution.models import ActionKind, GroundedAction
+from PIL import Image
 
 
 class RecordingRunner:
@@ -116,6 +118,123 @@ class AndroidDeviceTests(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertTrue(any(command[2:4] == ("input", "tap") for command in runner.calls))
+
+    def test_capture_screenshot_decodes_the_actual_png_dimensions(self) -> None:
+        """Perception must use the captured pixels rather than a fixed device size."""
+        png = BytesIO()
+        Image.new("RGB", (321, 654)).save(png, format="PNG")
+        calls: list[tuple[str, ...]] = []
+
+        def binary_runner(command: tuple[str, ...]) -> subprocess.CompletedProcess[bytes]:
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout=png.getvalue(), stderr=b"")
+
+        screenshot = AndroidDevice(binary_command_runner=binary_runner).capture_screenshot()
+
+        self.assertIsNotNone(screenshot)
+        self.assertEqual((321, 654), screenshot.size)
+        self.assertEqual(("adb", "exec-out", "screencap", "-p"), calls[0])
+
+    def test_ui_hierarchy_xml_accepts_a_valid_empty_hierarchy(self) -> None:
+        """An empty native tree is valid and must allow vision fallback."""
+        calls: list[tuple[str, ...]] = []
+
+        def runner(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            stdout = "<hierarchy />" if command[-2] == "cat" else "dumped"
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+        hierarchy = AndroidDevice(command_runner=runner).ui_hierarchy_xml()
+
+        self.assertEqual("<hierarchy />", hierarchy)
+        self.assertEqual(("adb", "shell", "uiautomator", "dump"), calls[0][:4])
+        self.assertTrue(calls[0][-1].startswith("/sdcard/gui_agent_window_"))
+        self.assertEqual(calls[0][-1], calls[1][-1])
+
+    def test_ui_hierarchy_xml_uses_unique_remote_paths_per_capture(self) -> None:
+        """Concurrent observations must not read a different capture's XML file."""
+        dump_paths: list[str] = []
+
+        def runner(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+            if command[-2] == "cat":
+                return subprocess.CompletedProcess(command, 0, stdout="<hierarchy />", stderr="")
+            if command[2:4] == ("uiautomator", "dump"):
+                dump_paths.append(command[-1])
+            return subprocess.CompletedProcess(command, 0, stdout="dumped", stderr="")
+
+        device = AndroidDevice(command_runner=runner)
+        self.assertEqual("<hierarchy />", device.ui_hierarchy_xml())
+        self.assertEqual("<hierarchy />", device.ui_hierarchy_xml())
+
+        self.assertEqual(2, len(dump_paths))
+        self.assertNotEqual(dump_paths[0], dump_paths[1])
+
+    def test_ui_hierarchy_xml_removes_its_generated_remote_file(self) -> None:
+        """Continuous perception must not leak one UI dump file per observation."""
+        calls: list[tuple[str, ...]] = []
+
+        def runner(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            stdout = "<hierarchy />" if command[-2] == "cat" else "dumped"
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+        hierarchy = AndroidDevice(command_runner=runner).ui_hierarchy_xml()
+
+        self.assertEqual("<hierarchy />", hierarchy)
+        self.assertEqual(
+            ("adb", "shell", "rm", "-f", calls[0][-1]),
+            calls[-1],
+        )
+
+    def test_foreground_app_reads_package_and_activity_from_current_focus(self) -> None:
+        """Perception state needs the foreground package/activity beside node metadata."""
+
+        def runner(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+            self.assertEqual(("adb", "shell", "dumpsys", "window", "windows"), command)
+            stdout = (
+                "Window #0 Window{deadbeef u0 com.example.old/.OldActivity}\n"
+                "mCurrentFocus=Window{a57e4f9 u0 "
+                "com.android.settings/com.android.settings.Settings}"
+            )
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+        foreground = AndroidDevice(command_runner=runner).foreground_app()
+
+        self.assertEqual(
+            {
+                "package": "com.android.settings",
+                "activity": "com.android.settings.Settings",
+            },
+            foreground,
+        )
+
+    def test_perception_state_collects_hierarchy_and_foreground_app(self) -> None:
+        """The device exposes all optional native context in one observation-ready mapping."""
+
+        def runner(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+            if command[-2] == "cat":
+                return subprocess.CompletedProcess(
+                    command, 0, stdout="<hierarchy />", stderr=""
+                )
+            if command[2:] == ("dumpsys", "window", "windows"):
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=(
+                        "mCurrentFocus=Window{a57e4f9 u0 "
+                        "com.android.settings/.Settings}"
+                    ),
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(command, 0, stdout="dumped", stderr="")
+
+        state = AndroidDevice(command_runner=runner).perception_state()
+
+        self.assertEqual("<hierarchy />", state["ui_hierarchy_xml"])
+        self.assertEqual(
+            {"package": "com.android.settings", "activity": ".Settings"},
+            state["foreground_app"],
+        )
 
 
 if __name__ == "__main__":

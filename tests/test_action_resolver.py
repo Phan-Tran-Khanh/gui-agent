@@ -64,6 +64,7 @@ class ActionResolverTests(unittest.TestCase):
                 element_id="media-volume",
                 bounds=(0.20, 0.40, 0.80, 0.50),
                 role="slider",
+                interactive=True,
             )
         )
 
@@ -96,6 +97,27 @@ class ActionResolverTests(unittest.TestCase):
                 "kind": "TAP",
                 "element_id": "unsafe-target",
                 "expected_effect": "open unsafe target",
+            }
+        )
+
+        with self.assertRaises(ActionResolutionError):
+            resolve_action(intent, observation)
+
+    def test_noninteractive_context_cannot_be_tapped_without_inspection(self) -> None:
+        """Context-only labels must not become accidental device targets."""
+        observation = self._observation(
+            ScreenElement(
+                element_id="network-heading",
+                bounds=(0.10, 0.10, 0.90, 0.20),
+                text="Network & internet",
+                interactive=False,
+            )
+        )
+        intent = ACTION_INTENT_ADAPTER.validate_python(
+            {
+                "kind": "TAP",
+                "element_id": "network-heading",
+                "expected_effect": "open network settings",
             }
         )
 

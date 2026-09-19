@@ -1,0 +1,14 @@
+{
+  "request_id": "parser-request-42",
+  "latency_ms": 12.5,
+  "elements": [
+    {
+      "idx": 0,
+      "type": "icon",
+      "bbox": [0.1, 0.2, 0.4, 0.4],
+      "interactivity": true,
+      "content": "Bluetooth",
+      "source": null
+    }
+  ]
+}

@@ -33,6 +33,10 @@ def resolve_action(intent: ActionIntent, observation: Observation) -> GroundedAc
     if isinstance(intent, TargetedActionIntent):
         element = _find_target(intent.element_id, observation)
         _validate_dispatchable_bounds(element, observation)
+        if not element.interactive and not isinstance(intent, InspectRegionIntent):
+            raise ActionResolutionError(
+                f"element {element.element_id!r} is context-only and cannot be dispatched"
+            )
         if element.requires_inspection and not isinstance(intent, InspectRegionIntent):
             raise ActionResolutionError(
                 f"element {element.element_id!r} requires INSPECT_REGION before dispatch"

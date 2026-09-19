@@ -1,9 +1,9 @@
 """Grounder package for GUI Agent"""
 
-from grounder.grounder import ground
+from grounder.grounder import ground, parse_screen
 from grounder.models import OmniParserResult, ParsedElement
 
-__all__ = ["ground", "OmniParserResult", "ParsedElement"]
+__all__ = ["ground", "parse_screen", "OmniParserResult", "ParsedElement"]
 
 # ground() return type:  Tuple[Image.Image, str, List[ParsedElement]]
 #   [0] enhanced_image  — annotated PIL Image

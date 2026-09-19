@@ -40,6 +40,7 @@ import base64
 import io
 import json
 import logging
+import math
 import ssl
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -65,26 +66,59 @@ def _image_to_png_bytes(image: Image.Image) -> bytes:
 
 
 def _build_json_body(image_bytes: bytes) -> Tuple[bytes, str]:
-    """Encode image as base64 and wrap in the JSON body expected by /parse/."""
+    """Encode image as base64 for OmniParser's JSON parsing endpoint."""
     payload = {"base64_image": base64.b64encode(image_bytes).decode("utf-8")}
     return json.dumps(payload).encode("utf-8"), "application/json"
 
 
 def _parse_raw_element(raw: Dict[str, Any], fallback_idx: int) -> ParsedElement:
-    bbox_raw = raw.get("bbox", [0.0, 0.0, 0.0, 0.0])
+    bbox, bbox_valid, diagnostic = _parse_bbox(raw.get("bbox"))
+    raw_idx = raw.get("idx", fallback_idx)
+    try:
+        idx = int(raw_idx)
+    except (TypeError, ValueError):
+        idx = fallback_idx
     return ParsedElement(
-        idx=int(raw.get("idx", fallback_idx)),
+        idx=idx,
         type=str(raw.get("type", "text")),
-        bbox=(
-            float(bbox_raw[0]),
-            float(bbox_raw[1]),
-            float(bbox_raw[2]),
-            float(bbox_raw[3]),
-        ),
-        interactivity=bool(raw.get("interactivity", False)),
-        content=raw.get("content") or None,
-        source=raw.get("source") or None,
+        bbox=bbox,
+        interactivity=_parse_interactivity(raw.get("interactivity", False)),
+        content=_parse_optional_text(raw.get("content")),
+        source=_parse_optional_text(raw.get("source")),
+        bbox_valid=bbox_valid,
+        diagnostic=diagnostic,
     )
+
+
+def _parse_bbox(raw_bbox: Any) -> Tuple[Tuple[float, float, float, float], bool, Optional[str]]:
+    """Coerce parser bounds while keeping malformed detections diagnostic-only."""
+
+    if not isinstance(raw_bbox, (list, tuple)) or len(raw_bbox) != 4:
+        return (0.0, 0.0, 0.0, 0.0), False, "bbox must contain four coordinates"
+    try:
+        bbox = tuple(float(value) for value in raw_bbox)
+    except (TypeError, ValueError):
+        return (0.0, 0.0, 0.0, 0.0), False, "bbox coordinates must be numeric"
+    x1, y1, x2, y2 = bbox
+    if not all(math.isfinite(value) for value in bbox):
+        return bbox, False, "bbox coordinates must be finite"
+    if not (0.0 <= x1 < x2 <= 1.0 and 0.0 <= y1 < y2 <= 1.0):
+        return bbox, False, "bbox must be normalized, ordered, and non-zero-area"
+    return bbox, True, None
+
+
+def _parse_interactivity(value: Any) -> bool:
+    """Accept only explicit parser booleans as actionable intent."""
+
+    if isinstance(value, bool):
+        return value
+    return isinstance(value, str) and value.strip().casefold() == "true"
+
+
+def _parse_optional_text(value: Any) -> Optional[str]:
+    """Retain parser labels only when they satisfy the wire contract."""
+
+    return value or None if isinstance(value, str) else None
 
 
 def _call_omniparser_sync(
@@ -96,7 +130,7 @@ def _call_omniparser_sync(
     verify_ssl: bool = True,
 ) -> Dict[str, Any]:
     body, content_type = _build_json_body(image_bytes)
-    url = f"{base_url.rstrip('/')}/parse/"
+    url = f"{base_url.rstrip('/')}/api/parse-json"
     last_error: Optional[Exception] = None
     ssl_context = None if verify_ssl else ssl._create_unverified_context()  # pylint: disable=protected-access
 
@@ -156,18 +190,19 @@ async def _fetch_omniparser(image: Image.Image, config: Config) -> OmniParserRes
         config.parse_api_verify_ssl,
     )
 
-    # Prefer the server's own latency value (seconds → ms); fall back to
-    # local perf_counter measurement if the field is absent.
-    server_latency = payload.get("latency")
-    latency_ms = (
-        float(server_latency) * 1000
-        if server_latency is not None
-        else (time.perf_counter() - started) * 1000
-    )
+    if not isinstance(payload, dict):
+        raise ValueError("OmniParser response must be a JSON object")
 
-    raw_elements: List[Dict[str, Any]] = payload.get("parsed_content_list", [])
-    elements = [_parse_raw_element(elem, idx) for idx, elem in enumerate(raw_elements)]
-    interactable = [e for e in elements if e.interactivity]
+    latency_ms = _parse_latency_ms(payload, (time.perf_counter() - started) * 1000)
+
+    raw_elements = payload.get("parsed_content_list", [])
+    if not isinstance(raw_elements, list):
+        raw_elements = []
+    elements = [
+        _parse_raw_element(elem if isinstance(elem, dict) else {"content": str(elem)}, idx)
+        for idx, elem in enumerate(raw_elements)
+    ]
+    interactable = [e for e in elements if e.interactivity and e.bbox_valid]
 
     # Always compile from interactable-only elements — OmniParser's own
     # screen_info includes non-interactable elements which pollute the MLLM prompt.
@@ -176,11 +211,29 @@ async def _fetch_omniparser(image: Image.Image, config: Config) -> OmniParserRes
     return OmniParserResult(
         elements=elements,
         interactable=interactable,
-        width=int(payload.get("width", image.width)),
-        height=int(payload.get("height", image.height)),
+        width=image.width,
+        height=image.height,
         latency_ms=latency_ms,
         screen_info=screen_info,
+        request_id=payload.get("request_id"),
+        parser_metadata=payload.get("parser") if isinstance(payload.get("parser"), dict) else {},
+        raw_response=payload,
     )
+
+
+def _parse_latency_ms(payload: Dict[str, Any], fallback_ms: float) -> float:
+    """Read either known server latency format without trusting invalid values."""
+
+    for field, multiplier in (("latency_ms", 1.0), ("latency", 1000.0)):
+        if field not in payload:
+            continue
+        try:
+            latency_ms = float(payload[field]) * multiplier
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(latency_ms) and latency_ms >= 0.0:
+            return latency_ms
+    return fallback_ms
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +283,23 @@ def _mock_result(image: Image.Image) -> OmniParserResult:
 # Step 4: Public API
 # ---------------------------------------------------------------------------
 
+async def parse_screen(image: Image.Image, config: Optional[Config] = None) -> OmniParserResult:
+    """Return the complete OmniParser result for one screenshot."""
+
+    active_config = config or Config()
+    if active_config.mock_mode:
+        _logger.info("[MOCK] Returning synthetic grounding result")
+        result = _mock_result(image)
+    else:
+        result = await _fetch_omniparser(image, active_config)
+
+    _logger.info(
+        "Parsed: %d total / %d interactable elements (%.1f ms)",
+        len(result.elements), len(result.interactable), result.latency_ms,
+    )
+    return result
+
+
 async def ground(image: Image.Image) -> Tuple[Image.Image, str, List[ParsedElement]]:
     """
     Ground a screenshot using OmniParser.
@@ -250,18 +320,7 @@ async def ground(image: Image.Image) -> Tuple[Image.Image, str, List[ParsedEleme
         - interactable:    List[ParsedElement] — interactable elements needed
                            by the executor to resolve element_id → pixel coords.
     """
-    config = Config()
-
-    if config.mock_mode:
-        _logger.info("[MOCK] Returning synthetic grounding result")
-        result = _mock_result(image)
-    else:
-        result = await _fetch_omniparser(image, config)
-
-    _logger.info(
-        "Grounded: %d total / %d interactable elements (%.1f ms)",
-        len(result.elements), len(result.interactable), result.latency_ms,
-    )
+    result = await parse_screen(image)
 
     # Step 3: annotate
     enhanced = annotate(image, result.interactable)

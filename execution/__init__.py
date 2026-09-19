@@ -14,6 +14,7 @@ from .models import (
 )
 from .action_resolver import ActionResolutionError, resolve_action
 from .android_device import AndroidDevice
+from .perception import PerceptionEngine
 
 __all__ = [
     "ActionIntent",
@@ -23,6 +24,7 @@ __all__ = [
     "AndroidDevice",
     "GroundedAction",
     "Observation",
+    "PerceptionEngine",
     "ScreenElement",
     "StepDecision",
     "StrategyPlan",
