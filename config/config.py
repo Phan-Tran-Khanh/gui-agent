@@ -5,6 +5,8 @@ from pathlib import Path
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from execution.backend_adapter import ExecutionEngine
+
 
 class ConfigError(Exception):
     """Exception raised for configuration errors."""
@@ -56,6 +58,10 @@ class Config(BaseSettings):
     vision_cropping_enabled: bool = Field(
         default=False,
         description="Enable RegionFocus crop-and-upsample to zoom into candidate regions before grounding",
+    )
+    execution_engine: ExecutionEngine = Field(
+        default=ExecutionEngine.LEGACY,
+        description="Execution rollout path: legacy, closed_loop, or shadow",
     )
 
     @field_validator("model")

@@ -447,6 +447,7 @@ class SequentialExecutor:
                         event_type="action_decided",
                         title=f"Step {step_count}: Action Decided",
                         description=f"Action: {subtask.action_hint.value} on {subtask.expected_ui_element}",
+                        subgoal_id=current_milestone.id,
                         subgoal_index=step_count,
                         reasoning=subtask.description,
                         metadata={
@@ -482,6 +483,7 @@ class SequentialExecutor:
                                     event_type="action_executed",
                                     title=f"Step {step_count}: Action Executed",
                                     description=f"Executed: {action_dict['action_type']}",
+                                    subgoal_id=current_milestone.id,
                                     subgoal_index=step_count,
                                 )
                         else:
@@ -550,9 +552,9 @@ class SequentialExecutor:
             if task_id and self.sequential_runner:
                 await self.sequential_runner.emit(
                     task_id=task_id,
-                    stage="completed",
-                    event_type="task_completed",
-                    title="Max Steps Reached",
+                    stage="failed",
+                    event_type="task_failed",
+                    title="Max Steps Reached Without Goal Completion",
                     description=f"Reached maximum {self.max_steps} steps without goal completion",
                 )
         else:

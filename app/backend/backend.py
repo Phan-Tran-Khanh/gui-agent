@@ -23,6 +23,13 @@ from .sequential_runner import SequentialRunner
 
 from .task_manager import TaskManager
 from config import Config
+from execution.backend_adapter import (
+    ClosedLoopBackendAdapter,
+    ExecutionEngine,
+    create_android_adapter,
+    run_with_engine,
+)
+from grounder.grounder import parse_screen as parse_grounded_screen
 
 # Setup logger
 logging.basicConfig(
@@ -102,6 +109,36 @@ class SequentialExecutionRequest(BaseModel):
     step_delay_sec: float = Field(default=3.0, description="Delay after each action in seconds")
     output_dir: str = Field(default="output", description="Directory to save results")
     task_id: Optional[str] = Field(default=None, description="Optional task ID for event emission")
+
+
+def create_legacy_executor(
+    payload: SequentialExecutionRequest,
+    config: Config,
+) -> SequentialExecutor:
+    """Build the existing executor unchanged for legacy and shadow rollout."""
+
+    return SequentialExecutor(
+        device_id=payload.device_id,
+        omniparser_client=omniparser_client,
+        config=config,
+        logger=logger,
+        sequential_runner=sequentialRunner,
+        max_steps=payload.max_steps,
+        step_delay_sec=payload.step_delay_sec,
+        mock=mock_mode,
+    )
+
+
+def create_closed_loop_adapter(
+    payload: SequentialExecutionRequest,
+    config: Config,
+) -> ClosedLoopBackendAdapter:
+    """Create the shared Phase 1-3 control loop for backend execution."""
+
+    return create_android_adapter(
+        device_id=payload.device_id,
+        parse_screen=lambda image: parse_grounded_screen(image, config),
+    )
 
 
 @app.get("/health")
@@ -200,19 +237,18 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
         config = startup_config
         logger.info("[sequential/execute] Configuration loaded successfully")
 
-        # Create sequential executor
-        logger.info("[sequential/execute] Creating SequentialExecutor (mock=%s)...", mock_mode)
-        seq_executor = SequentialExecutor(
-            device_id=payload.device_id,
-            omniparser_client=omniparser_client,
-            config=config,
-            logger=logger,
-            sequential_runner=sequentialRunner,
-            max_steps=payload.max_steps,
-            step_delay_sec=payload.step_delay_sec,
-            mock=mock_mode,
+        engine = config.execution_engine
+        logger.info("[sequential/execute] Selected execution engine: %s", engine.value)
+        seq_executor = (
+            create_legacy_executor(payload, config)
+            if engine is not ExecutionEngine.CLOSED_LOOP
+            else None
         )
-        logger.info("[sequential/execute] SequentialExecutor created successfully")
+        closed_loop_adapter = (
+            create_closed_loop_adapter(payload, config)
+            if engine is not ExecutionEngine.LEGACY
+            else None
+        )
 
         # Create task in task manager
         logger.info(f"[sequential/execute] Creating task for goal: {payload.goal}")
@@ -222,15 +258,58 @@ async def sequential_execute(payload: SequentialExecutionRequest) -> Dict[str, A
         async def _run() -> None:
             logger.info(f"[sequential/execute] Starting background executor for task {state.task_id}")
             try:
-                await seq_executor.execute(
-                    user_goal=payload.goal,
-                    task_id=state.task_id,
-                    initial_screenshot=initial_screenshot,
-                    output_dir=payload.output_dir,
+                async def legacy_execute() -> Any:
+                    if seq_executor is None:
+                        raise RuntimeError("legacy executor was not created")
+                    return await seq_executor.execute(
+                        user_goal=payload.goal,
+                        task_id=state.task_id,
+                        initial_screenshot=initial_screenshot,
+                        output_dir=payload.output_dir,
+                    )
+
+                async def closed_loop_execute() -> Any:
+                    if closed_loop_adapter is None:
+                        raise RuntimeError("closed-loop adapter was not created")
+                    return await closed_loop_adapter.execute(
+                        task_id=state.task_id,
+                        goal=payload.goal,
+                        max_steps=payload.max_steps,
+                        event_sink=sequentialRunner,
+                    )
+
+                async def shadow_predict() -> None:
+                    if closed_loop_adapter is None:
+                        raise RuntimeError("closed-loop adapter was not created")
+                    try:
+                        await closed_loop_adapter.emit_shadow_prediction(
+                            task_id=state.task_id,
+                            goal=payload.goal,
+                            event_sink=sequentialRunner,
+                        )
+                    except Exception as error:
+                        logger.warning(
+                            "[sequential/execute] Shadow prediction failed; continuing legacy execution: %s",
+                            error,
+                        )
+
+                await run_with_engine(
+                    engine,
+                    legacy_execute=legacy_execute,
+                    closed_loop_execute=closed_loop_execute,
+                    shadow_predict=shadow_predict,
                 )
                 logger.info(f"[sequential/execute] Background executor completed for task {state.task_id}")
             except Exception as exc:
                 logger.exception(f"[sequential/execute] Background executor failed for task {state.task_id}: {exc}")
+                await sequentialRunner.emit(
+                    task_id=state.task_id,
+                    stage="failed",
+                    event_type="task_failed",
+                    title="Execution Engine Failed",
+                    description=str(exc),
+                    metadata={"engineVersion": engine.value},
+                )
                 await task_manager.mark_failed(state.task_id, str(exc))
 
         worker = asyncio.create_task(_run())
