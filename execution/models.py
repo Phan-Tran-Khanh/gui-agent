@@ -26,6 +26,18 @@ class ActionKind(str, Enum):
     INSPECT_REGION = "INSPECT_REGION"
 
 
+class FailureClass(str, Enum):
+    """Classifies why a verified closed-loop attempt cannot continue safely."""
+
+    PERCEPTION = "perception"
+    GROUNDING = "grounding"
+    TRANSPORT = "transport"
+    NO_EFFECT = "no-effect"
+    WRONG_EFFECT = "wrong-effect"
+    STALLED = "stalled"
+    EXHAUSTED = "exhausted"
+
+
 class ScreenElement(BaseModel):
     """An observation-scoped UI target with normalized bounds."""
 
@@ -203,6 +215,8 @@ class VerificationResult(BaseModel):
     reason: str = ""
     evidence: list[str] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    failure_class: FailureClass | None = None
+    goal_achieved: bool = False
 
 
 class ActionOutcome(BaseModel):
@@ -230,6 +244,7 @@ class StepDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     intent: ActionIntent
+    deferred_intent: ActionIntent | None = Field(default=None, exclude=True)
     target_evidence: str = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
     alternate_element_ids: list[str] = Field(default_factory=list)
