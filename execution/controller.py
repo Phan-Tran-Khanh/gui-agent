@@ -23,7 +23,7 @@ from .models import (
     TransportResult,
     VerificationResult,
 )
-from .verifier import observation_fingerprint
+from .verifier import observation_fingerprint, observation_settle_fingerprint
 
 
 ObservationProvider = Callable[[], Awaitable[Observation]]
@@ -49,6 +49,8 @@ class ControllerOutcome(BaseModel):
     verification: VerificationResult | None = None
     failure_class: FailureClass | None = None
     recovery: str | None = None
+    before_observation: Observation | None = Field(default=None, exclude=True)
+    after_observation: Observation | None = Field(default=None, exclude=True)
 
 
 class ControllerResult(BaseModel):
@@ -73,7 +75,7 @@ class ClosedLoopController:
         observe: ObservationProvider,
         dispatch: Dispatcher,
         resolve: Resolver = resolve_action,
-        settle_timeout_s: float = 2.0,
+        settle_timeout_s: float = 10.0,
         poll_interval_s: float = 0.2,
         max_settle_polls: int = 20,
         clock: Callable[[], float] = time.monotonic,
@@ -208,6 +210,7 @@ class ClosedLoopController:
                         intent=decision.intent,
                         failure_class=FailureClass.GROUNDING,
                         recovery="grounding failed",
+                        before_observation=observation,
                     )
                 )
                 if not perception_retry_used:
@@ -231,12 +234,19 @@ class ClosedLoopController:
                 continue
 
             if action.internal:
+                before_observation = observation
+                try:
+                    refreshed_observation = await self._settled_observation()
+                except PerceptionUnavailable:
+                    return self._failed(FailureClass.PERCEPTION, outcomes, observation)
                 outcomes.append(
                     ControllerOutcome(
                         route_index=route_index,
                         milestone_index=milestone_index,
                         intent=decision.intent,
                         action=action,
+                        before_observation=before_observation,
+                        after_observation=refreshed_observation,
                         verification=VerificationResult(
                             verified=True,
                             reason="inspection is internal and triggered fresh perception",
@@ -245,8 +255,11 @@ class ClosedLoopController:
                         recovery="perception retry",
                     )
                 )
+                observation = refreshed_observation
                 if perception_retry_used:
-                    alternate = self._alternate_decision(decision, observation, used_alternate)
+                    alternate = self._alternate_decision(
+                        decision, refreshed_observation, used_alternate
+                    )
                     if alternate is not None and not using_fallback:
                         pending_decision = alternate
                         used_alternate = True
@@ -259,10 +272,6 @@ class ClosedLoopController:
                     used_alternate = False
                     continue
                 perception_retry_used = True
-                try:
-                    observation = await self._settled_observation()
-                except PerceptionUnavailable:
-                    return self._failed(FailureClass.PERCEPTION, outcomes, observation)
                 continue
 
             repeat_key = self._repeat_key(observation, action)
@@ -280,6 +289,7 @@ class ClosedLoopController:
                 return self._failed(FailureClass.STALLED, outcomes, observation)
             repeated_actions[repeat_key] = repeated_actions.get(repeat_key, 0) + 1
 
+            before_observation = observation
             transport = self._dispatch_safely(action)
             try:
                 after = await self._settled_observation()
@@ -304,6 +314,7 @@ class ClosedLoopController:
                                 transport=transport,
                                 verification=verification,
                                 failure_class=FailureClass.PERCEPTION,
+                                before_observation=before_observation,
                             )
                         )
                         return self._failed(FailureClass.PERCEPTION, outcomes, observation)
@@ -323,6 +334,7 @@ class ClosedLoopController:
                             transport=transport,
                             verification=verification,
                             failure_class=FailureClass.PERCEPTION,
+                            before_observation=before_observation,
                         )
                     )
                     return self._failed(FailureClass.PERCEPTION, outcomes, observation)
@@ -338,6 +350,8 @@ class ClosedLoopController:
                     transport=transport,
                     verification=verification,
                     failure_class=failure_class,
+                    before_observation=before_observation,
+                    after_observation=after,
                 )
             )
             steps += 1
@@ -394,7 +408,7 @@ class ClosedLoopController:
                 self._require_screenshot(current)
             except Exception as error:
                 raise PerceptionUnavailable("observation capture failed while settling") from error
-            if observation_fingerprint(previous) == observation_fingerprint(current):
+            if observation_settle_fingerprint(previous) == observation_settle_fingerprint(current):
                 return current
             previous = current
         raise PerceptionUnavailable("observation did not stabilize before the settle timeout")

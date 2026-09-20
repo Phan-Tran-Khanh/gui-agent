@@ -293,6 +293,66 @@ def _failed() -> VerificationResult:
 class ClosedLoopControllerTests(unittest.TestCase):
     """These tests catch recovery ordering and false-completion regressions."""
 
+    def test_default_settle_timeout_allows_slow_observation_pair(self) -> None:
+        """A phone observation may take several seconds before the second sample."""
+        now = [0.0]
+
+        async def observe() -> Observation:
+            now[0] += 3.0
+            return _observation("stable")
+
+        controller = ClosedLoopController(
+            policy=object(),
+            verifier=object(),
+            observe=observe,
+            dispatch=lambda _action: TransportResult(success=True),
+            poll_interval_s=0.0,
+            max_settle_polls=3,
+            clock=lambda: now[0],
+        )
+
+        settled = asyncio.run(controller._settled_observation())
+
+        self.assertEqual("stable", settled.observation_id)
+
+    def test_action_outcome_retains_before_and_after_observations_for_evidence(self) -> None:
+        """Action outcomes must retain the exact screenshots surrounding dispatch."""
+        before = _observation("before")
+        after = _observation("after", color="green", tree_text="complete")
+        observer = QueuedObserver([before, before, after, after])
+        dispatcher = RecordingDispatcher([TransportResult(success=True)])
+        verifier = ScriptedVerifier([_verified(goal_achieved=True)])
+        policy = ScriptedPolicy(
+            StrategyPlan(goal="goal complete", routes=[["GUI route"]]),
+            [_decision("primary")],
+        )
+
+        result = asyncio.run(
+            _controller(policy, verifier, observer, dispatcher).run("goal complete", 1)
+        )
+
+        self.assertTrue(result.completed)
+        self.assertIs(result.outcomes[0].before_observation, before)
+        self.assertIs(result.outcomes[0].after_observation, after)
+
+    def test_native_tree_stability_tolerates_unrelated_screenshot_change(self) -> None:
+        """A stable native hierarchy may accompany a changing clock or wallpaper."""
+        first = _observation("first", color="white")
+        second = _observation("second", color="green")
+        observer = QueuedObserver([first, second])
+        controller = ClosedLoopController(
+            policy=object(),
+            verifier=object(),
+            observe=observer,
+            dispatch=lambda _action: TransportResult(success=True),
+            poll_interval_s=0.0,
+            max_settle_polls=3,
+        )
+
+        settled = asyncio.run(controller._settled_observation())
+
+        self.assertEqual("second", settled.observation_id)
+
     def test_every_dispatched_action_is_verified(self) -> None:
         """A transport call must always have one semantic before/after verification."""
         before = _observation("before")
@@ -334,7 +394,9 @@ class ClosedLoopControllerTests(unittest.TestCase):
         """After one re-perception, persistent ambiguity may recover only through its named alternate."""
         ambiguous = _observation("ambiguous", ambiguous=True)
         after = _observation("after", color="green", tree_text="complete")
-        observer = QueuedObserver([ambiguous, ambiguous, ambiguous, ambiguous, after, after])
+        observer = QueuedObserver(
+            [ambiguous, ambiguous, ambiguous, ambiguous, after, after, after, after]
+        )
         dispatcher = RecordingDispatcher([TransportResult(success=True)])
         verifier = ScriptedVerifier([_verified(goal_achieved=True)])
         policy = Policy(

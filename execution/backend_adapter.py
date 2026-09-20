@@ -10,9 +10,11 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 from .controller import ClosedLoopController, ControllerOutcome, ControllerResult, PerceptionUnavailable
+from .evidence import save_action_evidence
 from .models import FailureClass, Observation, StepDecision
 
 
@@ -80,6 +82,8 @@ def create_android_adapter(
     *,
     device_id: str | None,
     parse_screen: Callable[[Any], Awaitable[Any]],
+    evidence_root: str | Path | None = None,
+    evidence_public_prefix: str | None = None,
 ) -> "ClosedLoopBackendAdapter":
     """Create the production controller from the shared Android boundaries."""
 
@@ -100,6 +104,8 @@ def create_android_adapter(
         verifier=verifier,
         device=device,
         perception=perception,
+        evidence_root=evidence_root,
+        evidence_public_prefix=evidence_public_prefix,
     )
 
 
@@ -114,10 +120,14 @@ class ClosedLoopBackendAdapter:
         controller: ClosedLoopController | Any,
         shadow_observe: Callable[[], Awaitable[Observation]] | None = None,
         policy: Any | None = None,
+        evidence_root: str | Path | None = None,
+        evidence_public_prefix: str | None = None,
     ) -> None:
         self._controller = controller
         self._shadow_observe = shadow_observe
         self._policy = policy
+        self._evidence_root = evidence_root
+        self._evidence_public_prefix = evidence_public_prefix
 
     @classmethod
     def from_device(
@@ -130,6 +140,9 @@ class ClosedLoopBackendAdapter:
         **controller_kwargs: Any,
     ) -> "ClosedLoopBackendAdapter":
         """Build controller and shadow paths from the Phase 1/2 boundaries."""
+
+        evidence_root = controller_kwargs.pop("evidence_root", None)
+        evidence_public_prefix = controller_kwargs.pop("evidence_public_prefix", None)
 
         async def observe() -> Observation:
             image = device.capture_screenshot()
@@ -144,7 +157,13 @@ class ClosedLoopBackendAdapter:
             dispatch=device.execute,
             **controller_kwargs,
         )
-        return cls(controller=controller, shadow_observe=observe, policy=policy)
+        return cls(
+            controller=controller,
+            shadow_observe=observe,
+            policy=policy,
+            evidence_root=evidence_root,
+            evidence_public_prefix=evidence_public_prefix,
+        )
 
     async def execute(
         self,
@@ -170,10 +189,12 @@ class ClosedLoopBackendAdapter:
             if result.final_observation is not None
             else None
         )
-        for outcome in result.outcomes:
+        for step_index, outcome in enumerate(result.outcomes, start=1):
             await self._emit_outcome(
                 task_id=task_id,
                 outcome=outcome,
+                step_index=step_index,
+                goal=goal,
                 observation_id=observation_id,
                 event_sink=event_sink,
             )
@@ -284,11 +305,14 @@ class ClosedLoopBackendAdapter:
         *,
         task_id: str,
         outcome: ControllerOutcome,
+        step_index: int,
+        goal: str,
         observation_id: str | None,
         event_sink: EventSink,
     ) -> None:
         subgoal_id, subgoal_index = _subgoal(outcome)
-        metadata = _outcome_metadata(outcome, observation_id, self.engine_version)
+        evidence = self._save_evidence(task_id, step_index, goal, outcome)
+        metadata = _outcome_metadata(outcome, observation_id, self.engine_version, evidence)
         if outcome.intent is not None:
             await event_sink.emit(
                 task_id,
@@ -299,6 +323,7 @@ class ClosedLoopBackendAdapter:
                 subgoal_id=subgoal_id,
                 subgoal_index=subgoal_index,
                 confidence=metadata["confidence"],
+                screenshot_url=(evidence or {}).get("urls", {}).get("before_annotated"),
                 metadata=metadata,
             )
         if outcome.action is not None and not outcome.action.internal:
@@ -315,14 +340,46 @@ class ClosedLoopBackendAdapter:
                 subgoal_id=subgoal_id,
                 subgoal_index=subgoal_index,
                 confidence=metadata["confidence"],
+                screenshot_url=(evidence or {}).get("urls", {}).get("after_annotated"),
                 metadata=metadata,
             )
+
+    def _save_evidence(
+        self,
+        task_id: str,
+        step_index: int,
+        goal: str,
+        outcome: ControllerOutcome,
+    ) -> dict[str, Any] | None:
+        if self._evidence_root is None:
+            return None
+        if outcome.before_observation is None and outcome.after_observation is None:
+            return None
+        try:
+            evidence = save_action_evidence(
+                self._evidence_root,
+                task_id=task_id,
+                step_index=step_index,
+                goal=goal,
+                intent=outcome.intent,
+                action=outcome.action,
+                transport=outcome.transport,
+                verification=outcome.verification,
+                before=outcome.before_observation,
+                after=outcome.after_observation,
+                public_prefix=self._evidence_public_prefix,
+            )
+            evidence.pop("manifest", None)
+            return evidence
+        except Exception as error:  # pragma: no cover - evidence must not break execution
+            return {"error": f"action evidence failed: {error}"}
 
 
 def _outcome_metadata(
     outcome: ControllerOutcome,
     observation_id: str | None,
     engine_version: str,
+    evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     verification = outcome.verification
     return {
@@ -333,6 +390,7 @@ def _outcome_metadata(
         "groundedAction": _model_payload(outcome.action),
         "verification": _model_payload(verification),
         "confidence": verification.confidence if verification is not None else None,
+        "evidence": evidence,
     }
 
 

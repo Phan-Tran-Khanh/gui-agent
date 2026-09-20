@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import unittest
 from io import BytesIO
+from unittest.mock import patch
 
 from execution.android_device import AndroidDevice
 from execution.models import ActionKind, GroundedAction
@@ -234,6 +235,20 @@ class AndroidDeviceTests(unittest.TestCase):
         self.assertEqual(
             {"package": "com.android.settings", "activity": ".Settings"},
             state["foreground_app"],
+        )
+
+    @patch("execution.android_device.subprocess.run")
+    def test_adb_text_output_decodes_utf8_without_failing_on_phone_text(self, run) -> None:
+        """Non-ASCII UI text must not make native perception fail on Windows."""
+        AndroidDevice._run_subprocess(("adb", "shell", "uiautomator", "dump"))
+
+        run.assert_called_once_with(
+            ("adb", "shell", "uiautomator", "dump"),
+            capture_output=True,
+            check=False,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
         )
 
 

@@ -269,7 +269,14 @@ class AndroidDevice:
 
     @staticmethod
     def _run_subprocess(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(command, capture_output=True, check=False, text=True)
+        return subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
 
     @staticmethod
     def _run_binary_subprocess(command: tuple[str, ...]) -> subprocess.CompletedProcess[bytes]:

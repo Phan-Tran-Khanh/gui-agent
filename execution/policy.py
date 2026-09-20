@@ -94,6 +94,14 @@ class Policy:
         active_route, active_milestone = _active_route(
             plan, route_index=route_index, milestone_index=milestone_index
         )
+        if route_index == 0 and milestone_index == 0:
+            native_goal_decision = _native_goal_decision(plan.goal, observation)
+            if native_goal_decision is not None:
+                return self._validate_decision(
+                    native_goal_decision,
+                    observation,
+                    allow_system_fallback=allow_system_fallback,
+                )
         if self._decision_provider is None:
             decision = _default_decision(
                 plan.goal,
@@ -429,6 +437,51 @@ def _default_decision(
             expected_effect=f"inspect {target.text or target.element_id} before acting on {goal}",
         )
     return StepDecision(intent=intent, target_evidence=evidence, confidence=0.5)
+
+
+def _native_goal_decision(goal: str, observation: Observation) -> StepDecision | None:
+    """Prefer a high-confidence native target for obvious app-opening goals."""
+
+    aliases = _native_goal_aliases(goal)
+    if not aliases:
+        return None
+    candidates = []
+    for element in observation.elements:
+        if (
+            element.source not in {"uiautomator", "fused"}
+            or not element.interactive
+            or element.requires_inspection
+        ):
+            continue
+        searchable = " ".join(
+            [
+                element.text,
+                str(element.metadata.get("content_description", "")),
+                str(element.metadata.get("resource_id", "")),
+            ]
+        ).casefold()
+        if any(alias in searchable for alias in aliases):
+            area = (element.bounds[2] - element.bounds[0]) * (element.bounds[3] - element.bounds[1])
+            candidates.append((element.source != "uiautomator", area, element))
+    if not candidates:
+        return None
+    _, _, target = sorted(candidates, key=lambda item: (item[0], item[1], item[2].element_id))[0]
+    return StepDecision(
+        intent=TapIntent(element_id=target.element_id, expected_effect=goal),
+        target_evidence=(
+            f"Native {target.source} element {target.element_id!r} is labelled "
+            f"{target.text or target.metadata.get('content_description', '')!r} "
+            f"and directly matches the Settings goal."
+        ),
+        confidence=0.99,
+    )
+
+
+def _native_goal_aliases(goal: str) -> tuple[str, ...]:
+    words = set(re.findall(r"[a-z0-9]+", goal.casefold()))
+    if "settings" not in words and "setting" not in words:
+        return ()
+    return ("settings", "setting", "cài đặt", "cai dat")
 
 
 def _json_safe(value: Any) -> Any:

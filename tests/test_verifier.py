@@ -120,6 +120,45 @@ class VerifierTests(unittest.TestCase):
         self.assertTrue(result.goal_achieved)
         self.assertIsNone(result.failure_class)
 
+    def test_open_settings_is_verified_from_the_foreground_package(self) -> None:
+        """A Settings goal has an independent package-level post-action oracle."""
+        before = _observation(
+            "before", color="white", tree_text="Launcher", element_text="Settings"
+        ).model_copy(
+            update={
+                "device_state": {
+                    "foreground_app": {
+                        "package": "com.transsion.hilauncher",
+                        "activity": "QuickstepLauncher",
+                    }
+                }
+            }
+        )
+        after = _observation(
+            "after", color="green", tree_text="Settings", element_text="Settings"
+        ).model_copy(
+            update={
+                "device_state": {
+                    "foreground_app": {
+                        "package": "com.android.settings",
+                        "activity": "Settings",
+                    }
+                }
+            }
+        )
+        action = GroundedAction(
+            kind=ActionKind.TAP,
+            expected_effect="Open the Settings app",
+            element_id="settings",
+            point=(50, 50),
+        )
+
+        result = Verifier(goal="Open the Settings app").verify(before, action, after)
+
+        self.assertTrue(result.verified)
+        self.assertTrue(result.goal_achieved)
+        self.assertIn("foreground package", result.reason)
+
     def test_semantic_judge_receives_goal_action_and_both_observations(self) -> None:
         """The independent semantic boundary gets all evidence, not only an image delta."""
         calls: list[object] = []

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import unittest
+from pathlib import Path
 
 from PIL import Image
 
@@ -224,6 +226,58 @@ class BackendAdapterTests(unittest.TestCase):
 
         self.assertIn("action_decided", [event["event_type"] for event in events.events])
         self.assertNotIn("action_executed", [event["event_type"] for event in events.events])
+
+    def test_action_events_include_saved_before_after_evidence(self) -> None:
+        """Backend events must expose the files that explain a dispatched action."""
+        before = _observation("observation-before")
+        after = _observation("observation-after")
+        outcome = ControllerOutcome(
+            route_index=0,
+            milestone_index=0,
+            intent=TapIntent(element_id="settings", expected_effect="open settings"),
+            action=GroundedAction(
+                kind=ActionKind.TAP,
+                element_id="settings",
+                point=(10, 15),
+                expected_effect="open settings",
+            ),
+            transport=TransportResult(success=True),
+            verification=VerificationResult(verified=True, goal_achieved=True),
+            before_observation=before,
+            after_observation=after,
+        )
+        events = _RecordingEvents()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                adapter = ClosedLoopBackendAdapter(
+                    controller=_Controller(
+                        ControllerResult(completed=True, outcomes=[outcome], final_observation=after)
+                    ),
+                    evidence_root=temp_dir,
+                    evidence_public_prefix="/output",
+                )
+            except TypeError as error:
+                self.fail(f"closed-loop adapter lacks evidence output support: {error}")
+            asyncio.run(
+                adapter.execute(
+                    task_id="task-evidence",
+                    goal="open settings",
+                    max_steps=1,
+                    event_sink=events,
+                )
+            )
+
+            action_events = [
+                event
+                for event in events.events
+                if event["event_type"] in {"action_decided", "action_executed"}
+            ]
+            self.assertEqual(2, len(action_events))
+            evidence = action_events[0]["metadata"]["evidence"]
+            self.assertTrue(Path(evidence["files"]["before_annotated"]).is_file())
+            self.assertTrue(Path(evidence["files"]["after_annotated"]).is_file())
+            self.assertTrue(evidence["urls"]["before_annotated"].startswith("/output/"))
 
     def test_shadow_prediction_captures_perceives_and_decides_without_resolving_or_dispatching(self) -> None:
         device = _ShadowDevice()

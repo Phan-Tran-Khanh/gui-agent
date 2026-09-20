@@ -60,13 +60,15 @@ class AssistantAgent:
             })
         
         try:
-            response = litellm.completion(
-                model=self.model,
-                messages=[{"role": "user", "content": content}],
-                api_key=self.api_key,
-                timeout=kwargs.pop("timeout", self.request_timeout),
+            completion_kwargs = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": content}],
+                "api_key": self.api_key,
+                "timeout": kwargs.pop("timeout", self.request_timeout),
                 **kwargs,
-            )
+            }
+     
+            response = litellm.completion(**completion_kwargs)
 
             result = response.choices[0].message.content
 

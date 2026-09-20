@@ -14,6 +14,7 @@ planning (Planner), and action (Executor).
 
 import asyncio
 import base64
+import io
 import json
 import logging
 import time
@@ -21,6 +22,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from PIL import Image
 
 # Minimal 1×1 gray PNG returned by mock screenshot capture.
 _MOCK_PNG = base64.b64decode(
@@ -166,6 +169,8 @@ class SequentialExecutor:
 
         # Create output directory
         output_path = Path(output_dir)
+        if task_id and output_path.name != task_id:
+            output_path = output_path / task_id
         output_path.mkdir(parents=True, exist_ok=True)
 
         # Initialize result
@@ -259,8 +264,10 @@ class SequentialExecutor:
                 self.logger.info("PHASE 2: Annotating screenshot...")
                 self.logger.info("-" * 80)
 
-                annotated_image_path = output_path / f"step_{step_count}_annotated.png"
-                temp_screenshot_path = output_path / f"step_{step_count}_raw.png"
+                step_output_path = output_path / f"step-{step_count:03d}"
+                step_output_path.mkdir(parents=True, exist_ok=True)
+                annotated_image_path = step_output_path / "annotated.png"
+                temp_screenshot_path = step_output_path / "raw.png"
                 try:
                     with open(temp_screenshot_path, "wb") as f:
                         f.write(current_screenshot)
@@ -289,9 +296,19 @@ class SequentialExecutor:
                     self.logger.warning(f"⚠ Failed to annotate screenshot: {e}")
                     step_data.screenshot_annotated = current_screenshot
 
+                self._persist_step_artifacts(
+                    output_path,
+                    step_data,
+                    user_goal=user_goal,
+                    task_id=task_id,
+                )
+
                 # Emit GUI state updated event
                 if task_id and self.sequential_runner:
-                    raw_screenshot_url = f"/output/{temp_screenshot_path.name}?t={int(time.time() * 1000)}"
+                    raw_screenshot_url = (
+                        f"/output/{task_id}/step-{step_count:03d}/raw.png"
+                        f"?t={int(time.time() * 1000)}"
+                    )
                     await self.sequential_runner.emit(
                         task_id=task_id,
                         stage="executing_subgoal",
@@ -458,7 +475,11 @@ class SequentialExecutor:
                         },
                     )
 
-                action_dict = self._subtask_to_action(subtask)
+                action_dict = self._subtask_to_action(
+                    subtask,
+                    parsed_elements=parse_result.parsed_screen,
+                    screen_size=self._screenshot_size(current_screenshot),
+                )
                 if action_dict:
                     if self.mock:
                         is_valid, validation_error = True, ""
@@ -503,6 +524,13 @@ class SequentialExecutor:
                 )
                 self.logger.info("-" * 80)
 
+                self._persist_step_artifacts(
+                    output_path,
+                    step_data,
+                    user_goal=user_goal,
+                    task_id=task_id,
+                )
+
                 await asyncio.sleep(self.step_delay_sec)
 
                 self.logger.info("Capturing next screenshot...")
@@ -520,6 +548,12 @@ class SequentialExecutor:
                 step_data.error = str(e)
                 result.errors.append(f"Step {step_count}: {str(e)}")
                 result.steps.append(step_data)
+                self._persist_step_artifacts(
+                    output_path,
+                    step_data,
+                    user_goal=user_goal,
+                    task_id=task_id,
+                )
                 
                 if task_id and self.sequential_runner:
                     await self.sequential_runner.emit(
@@ -540,6 +574,14 @@ class SequentialExecutor:
 
         result.total_steps = step_count
         result.final_screenshot = current_screenshot
+
+        for completed_step in result.steps:
+            self._persist_step_artifacts(
+                output_path,
+                completed_step,
+                user_goal=user_goal,
+                task_id=task_id,
+            )
 
         if result.goal_achieved:
             self.logger.info(f" GOAL ACHIEVED in {step_count} steps!")
@@ -775,7 +817,13 @@ For each action you plan:
             self.logger.error(f"Error capturing screenshot: {e}")
             return None
 
-    def _subtask_to_action(self, subtask) -> Optional[Dict[str, Any]]:
+    def _subtask_to_action(
+        self,
+        subtask,
+        *,
+        parsed_elements: Optional[List[Dict[str, Any]]] = None,
+        screen_size: Optional[Tuple[int, int]] = None,
+    ) -> Optional[Dict[str, Any]]:
         """
         Convert a SubTask to an ADB action dictionary.
 
@@ -787,8 +835,13 @@ For each action you plan:
         """
         try:
             action_hint = subtask.action_hint
-            target_x = subtask.coordinates[0] if subtask.coordinates else 540
-            target_y = subtask.coordinates[1] if subtask.coordinates else 920
+            screen_width, screen_height = screen_size or (1080, 2400)
+            explicit_target = self._subtask_target(
+                subtask,
+                parsed_elements=parsed_elements,
+                screen_size=(screen_width, screen_height),
+            )
+            target_x, target_y = explicit_target or (540, 920)
 
             if action_hint.value == "click":
                 return {"action_type": "click", "target": [target_x, target_y]}
@@ -805,6 +858,13 @@ For each action you plan:
                 return {"action_type": "input_text", "text": text}
 
             elif action_hint.value == "scroll":
+                if explicit_target is None:
+                    target_x, target_y = self._scroll_fallback_target(
+                        subtask,
+                        screen_width=screen_width,
+                        screen_height=screen_height,
+                        parsed_elements=parsed_elements,
+                    )
                 direction = subtask.scroll_direction or "down"
                 distance = subtask.scroll_distance or "medium"
                 return {
@@ -849,6 +909,162 @@ For each action you plan:
         except Exception as e:
             self.logger.error(f"Error converting subtask to action: {e}")
             return None
+
+    def _subtask_target(
+        self,
+        subtask,
+        *,
+        parsed_elements: Optional[List[Dict[str, Any]]],
+        screen_size: Tuple[int, int],
+    ) -> Optional[Tuple[int, int]]:
+        coordinates = getattr(subtask, "coordinates", None)
+        if coordinates and len(coordinates) >= 2:
+            return int(coordinates[0]), int(coordinates[1])
+
+        bounding_box = getattr(subtask, "bounding_box", None)
+        if isinstance(bounding_box, dict):
+            if all(key in bounding_box for key in ("x", "y", "width", "height")):
+                return (
+                    int(bounding_box["x"] + bounding_box["width"] / 2),
+                    int(bounding_box["y"] + bounding_box["height"] / 2),
+                )
+            if all(key in bounding_box for key in ("left", "top", "right", "bottom")):
+                return (
+                    int((bounding_box["left"] + bounding_box["right"]) / 2),
+                    int((bounding_box["top"] + bounding_box["bottom"]) / 2),
+                )
+
+        if not parsed_elements:
+            return None
+
+        description = " ".join(
+            str(getattr(subtask, field, "") or "")
+            for field in ("expected_ui_element", "description")
+        ).lower()
+        keywords = [word for word in description.split() if len(word) > 2]
+        candidates: List[Tuple[int, int, int]] = []
+        width, height = screen_size
+        for element in parsed_elements:
+            bbox = element.get("bbox")
+            if not isinstance(bbox, list) or len(bbox) != 4:
+                continue
+            content = str(element.get("content", "")).lower()
+            if keywords and not any(keyword in content for keyword in keywords):
+                continue
+            x_min, y_min, x_max, y_max = bbox
+            center_x = int(((x_min + x_max) / 2) * width)
+            center_y = int(((y_min + y_max) / 2) * height)
+            area = int(max(0, x_max - x_min) * max(0, y_max - y_min) * width * height)
+            candidates.append((area, center_x, center_y))
+
+        if candidates:
+            _, center_x, center_y = max(candidates)
+            return center_x, center_y
+        return None
+
+    def _scroll_fallback_target(
+        self,
+        subtask,
+        *,
+        screen_width: int,
+        screen_height: int,
+        parsed_elements: Optional[List[Dict[str, Any]]] = None,
+    ) -> Tuple[int, int]:
+        description = " ".join(
+            str(getattr(subtask, field, "") or "")
+            for field in ("expected_ui_element", "description")
+        ).lower()
+        time_picker_words = ("hour", "minute", "time", "clock", "alarm", "picker")
+        if any(word in description for word in time_picker_words):
+            x = (screen_width * 2) // 3 if "minute" in description else screen_width // 3
+            return x, int(screen_height * 0.25)
+
+        # OmniParser often labels the wheel values only as numbers while the
+        # planner describes the action generically as "screen scrolling".
+        # Choose the numeric value nearest the center of the likely hour or
+        # minute column instead of falling through to the lower settings panel.
+        if parsed_elements:
+            target_x = screen_width // 3
+            numeric_targets: List[Tuple[int, int, int]] = []
+            for element in parsed_elements:
+                content = str(element.get("content", "")).strip()
+                bbox = element.get("bbox")
+                if not content.isdigit() or not isinstance(bbox, list) or len(bbox) != 4:
+                    continue
+                x_min, y_min, x_max, y_max = bbox
+                center_x = int(((x_min + x_max) / 2) * screen_width)
+                center_y = int(((y_min + y_max) / 2) * screen_height)
+                score = abs(center_x - target_x) + abs(center_y - int(screen_height * 0.25))
+                numeric_targets.append((score, center_x, center_y))
+            if numeric_targets:
+                _, center_x, center_y = min(numeric_targets)
+                return center_x, center_y
+        return screen_width // 2, int(screen_height * 0.60)
+
+    @staticmethod
+    def _screenshot_size(screenshot: Optional[bytes]) -> Tuple[int, int]:
+        if not screenshot:
+            return 1080, 2400
+        try:
+            with Image.open(io.BytesIO(screenshot)) as image:
+                return image.size
+        except Exception:
+            return 1080, 2400
+
+    @staticmethod
+    def _persist_step_artifacts(
+        output_path: Path,
+        step_data: ExecutionStep,
+        *,
+        user_goal: str,
+        task_id: Optional[str],
+    ) -> None:
+        step_dir = output_path / f"step-{step_data.step_number:03d}"
+        step_dir.mkdir(parents=True, exist_ok=True)
+        if step_data.screenshot_before is not None:
+            (step_dir / "raw.png").write_bytes(step_data.screenshot_before)
+        if step_data.screenshot_annotated is not None:
+            (step_dir / "annotated.png").write_bytes(step_data.screenshot_annotated)
+
+        plan = step_data.plan_generated
+        manifest = {
+            "task_id": task_id,
+            "goal": user_goal,
+            "step_number": step_data.step_number,
+            "timestamp": step_data.timestamp,
+            "action_executed": step_data.action_executed,
+            "goal_achieved": step_data.goal_achieved,
+            "goal_check_reasoning": step_data.goal_check_reasoning,
+            "elements_detected": step_data.elements_detected,
+            "parsed_elements": step_data.parsed_elements,
+            "action_details": step_data.metadata.get("action_details"),
+            "metadata": step_data.metadata,
+            "error": step_data.error,
+            "plan": {
+                "milestones": [
+                    {
+                        "id": milestone.id,
+                        "description": milestone.description,
+                        "subtasks": [
+                            {
+                                "id": subtask.id,
+                                "description": subtask.description,
+                                "action": subtask.action_hint.value,
+                                "coordinates": subtask.coordinates,
+                            }
+                            for subtask in milestone.subtasks
+                        ],
+                    }
+                    for milestone in plan.milestones
+                ]
+            }
+            if plan is not None
+            else None,
+        }
+        (step_dir / "action.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
 
 
 

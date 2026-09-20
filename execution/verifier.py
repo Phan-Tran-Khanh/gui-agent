@@ -165,6 +165,20 @@ def observation_fingerprint(observation: Observation) -> str:
     return _digest_json(material)
 
 
+def observation_settle_fingerprint(observation: Observation) -> str:
+    """Fingerprint a native-backed screen while tolerating unrelated pixel animation."""
+
+    tree = _tree_fingerprint(observation)
+    if tree is None:
+        return observation_fingerprint(observation)
+    return _digest_json(
+        {
+            "tree": tree,
+            "foreground": _foreground_fingerprint(observation),
+        }
+    )
+
+
 def _default_semantic_judge(
     goal: str,
     expected_effect: str,
@@ -173,7 +187,17 @@ def _default_semantic_judge(
     after: Observation,
     comparison: ObservationComparison,
 ) -> SemanticVerdict:
-    del goal, expected_effect, action, before, after, comparison
+    del expected_effect, comparison
+    if _is_settings_goal(goal) and action.kind.value in {"TAP", "OPEN_APP"}:
+        foreground = after.device_state.get("foreground_app")
+        if isinstance(foreground, dict) and foreground.get("package") == "com.android.settings":
+            return SemanticVerdict(
+                matched=True,
+                goal_achieved=True,
+                reason="foreground package is com.android.settings",
+                evidence=["foreground package=com.android.settings"],
+                confidence=1.0,
+            )
     return SemanticVerdict(
         matched=False,
         reason=(
@@ -183,6 +207,11 @@ def _default_semantic_judge(
         evidence=["independent_semantic_judge_required=True"],
         confidence=0.0,
     )
+
+
+def _is_settings_goal(goal: str) -> bool:
+    words = set(goal.casefold().replace("_", " ").split())
+    return "settings" in words or "setting" in words
 
 
 def _image_fingerprint(observation: Observation) -> str | None:

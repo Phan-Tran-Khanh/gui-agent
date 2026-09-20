@@ -189,6 +189,56 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(ActionKind.TAP, decision.deferred_intent.kind)
         self.assertEqual("uncertain-volume-icon", decision.deferred_intent.element_id)
 
+    def test_open_settings_prefers_the_interactive_native_settings_target(self) -> None:
+        """An obvious localized Settings control must beat unrelated vision labels."""
+        observation = Observation(
+            observation_id="launcher-settings",
+            width=720,
+            height=1600,
+            image=Image.new("RGB", (720, 1600), "white"),
+            elements=[
+                ScreenElement(
+                    element_id="native-settings",
+                    bounds=(0.5, 0.6925, 0.7389, 0.815),
+                    text="Cài đặt",
+                    role="TextView",
+                    source="uiautomator",
+                    interactive=True,
+                    metadata={"content_description": "Cài đặt có 1 thông báo"},
+                ),
+                ScreenElement(
+                    element_id="wrong-vision-icon",
+                    bounds=(0.3, 0.3, 0.45, 0.4),
+                    text="A library or library-related application.",
+                    role="icon",
+                    source="vision",
+                    requires_inspection=True,
+                ),
+            ],
+        )
+        provider_calls: list[dict[str, object]] = []
+        policy = Policy(
+            decision_provider=lambda context: provider_calls.append(context)
+            or {
+                "action": {
+                    "kind": "INSPECT_REGION",
+                    "element_id": "wrong-vision-icon",
+                    "expected_effect": "inspect the unrelated icon",
+                },
+                "target_evidence": "wrong vision target",
+                "confidence": 0.5,
+                "alternate_element_ids": [],
+            }
+        )
+
+        plan = policy.plan("Open the Settings app", observation)
+        decision = policy.decide(plan, observation, [], route_index=0, milestone_index=0)
+
+        self.assertEqual(ActionKind.TAP, decision.intent.kind)
+        self.assertEqual("native-settings", decision.intent.element_id)
+        self.assertIn("native", decision.target_evidence.casefold())
+        self.assertEqual([], provider_calls)
+
     def test_typed_step_decision_provider_is_accepted_at_the_policy_boundary(self) -> None:
         """A provider advertised as returning StepDecision must not be rejected as a raw payload."""
         typed_decision = StepDecision(
