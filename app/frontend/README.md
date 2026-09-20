@@ -8,7 +8,7 @@ Control-room chat interface for the GUI Agent pipeline.
 - Live execution rail with stage-aware event cards
 - Subgoal chips with active/done/failed status
 - Observability panel for latest screenshot and reasoning
-- WebSocket-first integration with automatic mock fallback
+- WebSocket-first integration with an opt-in mock flow
 - Responsive layout for desktop and mobile
 
 ## Stack
@@ -29,7 +29,11 @@ If your backend is available, set environment variables in `.env`:
 ```bash
 VITE_API_BASE_URL=http://localhost:8000/api/v1
 VITE_WS_BASE_URL=ws://localhost:8000/ws
+VITE_ENABLE_MOCK_UI=false
 ```
+
+The mock flow is opt-in. Set `VITE_ENABLE_MOCK_UI=true` only for a
+frontend-only smoke test; leave it `false` for real backend/device runs.
 
 If backend is not reachable, the UI automatically runs a local simulation stream.
 

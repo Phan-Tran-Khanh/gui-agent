@@ -45,7 +45,7 @@ export interface SequentialExecuteResponse {
 export async function callSequentialExecute(
   apiBase: string,
   request: SequentialExecuteRequest,
-  taskId?: string
+  taskId?: string,
 ): Promise<SequentialExecuteResponse> {
   const payload = {
     goal: request.goal,
@@ -53,7 +53,7 @@ export async function callSequentialExecute(
     base64_image: request.base64_image,
     max_steps: request.max_steps || 15,
     step_delay_sec: request.step_delay_sec || 3.0,
-    output_dir: request.output_dir || "output",
+    output_dir: request.output_dir || "output-live",
     task_id: taskId, // Include task_id if provided so backend can emit events
   };
 
@@ -75,7 +75,7 @@ export async function callSequentialExecute(
 
 /**
  * Start sequential execution and return actual task_id from backend for WebSocket connection.
- * 
+ *
  * We make a special call to just start the background execution and get the real task_id
  * that was created on the backend. The actual execution result is handled asynchronously.
  *
@@ -85,7 +85,7 @@ export async function callSequentialExecute(
  */
 export async function startSequentialExecution(
   apiBase: string,
-  request: SequentialExecuteRequest
+  request: SequentialExecuteRequest,
 ): Promise<string> {
   const payload = {
     goal: request.goal,
@@ -93,7 +93,7 @@ export async function startSequentialExecution(
     base64_image: request.base64_image,
     max_steps: request.max_steps || 15,
     step_delay_sec: request.step_delay_sec || 3.0,
-    output_dir: request.output_dir || "output",
+    output_dir: request.output_dir || "output-live",
   };
 
   const response = await fetch(`${apiBase}/sequential/execute`, {

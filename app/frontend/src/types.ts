@@ -34,7 +34,7 @@ export interface AgentEvent {
   reasoning?: string;
   screenshotUrl?: string;
   screenshotBase64?: string;
-  metadata?: Record<string, string | number | boolean | null>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface SubgoalModel {

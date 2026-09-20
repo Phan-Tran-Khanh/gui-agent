@@ -8,6 +8,7 @@ import { runMockStream } from "./services/mockStream";
 import { AgentWsClient } from "./services/wsClient";
 import { startSequentialExecution } from "./services/sequentialExecutor";
 import { AgentEvent } from "./types";
+import { isMockUiEnabled } from "./mockUiConfig.js";
 
 function createTaskId(): string {
   return `task-${Date.now()}`;
@@ -34,6 +35,7 @@ export default function App() {
     () => import.meta.env.VITE_WS_BASE_URL ?? "ws://localhost:8000/ws",
     []
   );
+  const mockUiEnabled = isMockUiEnabled(import.meta.env.VITE_ENABLE_MOCK_UI);
   const apiOrigin = useMemo(() => {
     try {
       return new URL(apiBase).origin;
@@ -143,7 +145,7 @@ export default function App() {
           cancelMockRef.current?.();
           dispatch({ type: "reset" });
         }}
-        onLoadMock={handleLoadMock}
+        onLoadMock={mockUiEnabled ? handleLoadMock : undefined}
       />
 
       <main className="workspace-grid">
